@@ -1,0 +1,78 @@
+name: revision-prix
+
+services:
+  revision-prix-postgres:
+    container_name: revision-prix-postgres
+    image: postgres:16.9-alpine3.21
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - revision-prix-postgres-data:/var/lib/postgresql/data
+    networks:
+      - revision-prix-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  revision-prix-backend:
+    container_name: revision-prix-backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: revision-prix-backend:0.1.0
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_DEBUG: ${DJANGO_DEBUG}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: revision-prix-postgres
+      POSTGRES_PORT: 5432
+    depends_on:
+      revision-prix-postgres:
+        condition: service_healthy
+    networks:
+      - revision-prix-internal
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    command: ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "30"]
+
+  revision-prix-frontend:
+    container_name: revision-prix-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: revision-prix-frontend:0.1.0
+    ports:
+      - "127.0.0.1:12701:80"
+    depends_on:
+      revision-prix-backend:
+        condition: service_healthy
+    networks:
+      - revision-prix-internal
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1/"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+volumes:
+  revision-prix-postgres-data:
+    name: revision-prix-postgres-data
+
+networks:
+  revision-prix-internal:
+    name: revision-prix-internal
+    driver: bridge

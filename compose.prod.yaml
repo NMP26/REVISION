@@ -1,0 +1,10 @@
+name: revision-prix
+
+include:
+  - compose.yaml
+
+services:
+  revision-prix-backend:
+    environment:
+      DJANGO_DEBUG: "False"
+      DJANGO_ALLOWED_HOSTS: revision-prix-backend
