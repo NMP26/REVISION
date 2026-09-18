@@ -1,5 +1,5 @@
-STATUS: DRAFT
-SOURCE: GOV 1.1 — fonctionnel partiellement approuvé
+STATUS: APPROVED
+SOURCE: GOV 1.1 + LOT 1A — périmètre fonctionnel validé
 
 # Sociétés
 
@@ -19,14 +19,25 @@ SOURCE: GOV 1.1 — fonctionnel partiellement approuvé
 | SOC-010 | Fournir les tests API pertinents. |
 | SOC-012 | Fournir les tests frontend pertinents. |
 
-Le rattachement utilisateur/société, l'archivage détaillé et les droits
-fins restent à préciser dans une décision ou une spec dédiée si
-nécessaire. Une société possédant des marchés ne doit pas être supprimée
-physiquement.
+## Périmètre LOT 1A implémenté
 
-## Éléments DRAFT / TBD
+L'accès utilisateur/société est porté par l'entité `Membership`, avec les
+rôles `OWNER`, `ADMIN` et `MEMBER`, et un indicateur d'accès actif distinct
+du statut de la société. La création d'une société crée atomiquement le
+rattachement `OWNER`. Les sociétés sont exposées uniquement aux membres
+actifs ; seuls `OWNER` et `ADMIN` peuvent modifier.
 
-L'architecture d'authentification, les sessions/tokens, la récupération
-de mot de passe et les permissions détaillées restent TBD. Voir AUTH-001
-à AUTH-004 et plans/LOT-01.md. Ce fichier reste DRAFT tant que la spec
-complète et la décision d'architecture ne sont pas validées.
+Les champs fonctionnels incluent la raison sociale, les informations
+juridiques et financières, les coordonnées, le représentant légal, le logo
+optionnel et les notes. Le capital social est décimal et les identifiants
+ICE/IF/RC/CNSS ne sont pas rendus uniques sans exigence explicite.
+
+L'archivage détaillé et les droits fins restent hors du périmètre livré.
+Une société possédant des marchés ne doit pas être supprimée physiquement.
+
+## Éléments encore DRAFT / TBD
+
+La récupération complète du mot de passe par email reste planifiée tant
+que l'infrastructure email n'est pas disponible. Les droits fins et les
+évolutions d'archivage restent à spécifier ; ils ne sont pas nécessaires
+pour LOT 1A. Voir plans/LOT-01.md.

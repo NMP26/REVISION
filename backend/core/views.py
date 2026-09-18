@@ -20,3 +20,7 @@ def health(request):
         migrations = {"status": "error", "detail": exc.__class__.__name__}
     status = "ok" if database["status"] == "ok" and migrations["status"] == "ok" else "degraded"
     return JsonResponse({"status": status, "service": "revision-prix-backend", "database": database, "migrations": migrations})
+
+
+def csrf_failure(request, reason=""):
+    return JsonResponse({"code": "CSRF_FAILED", "message": "La vérification CSRF a échoué."}, status=403)

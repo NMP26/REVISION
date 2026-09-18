@@ -5,7 +5,7 @@
 | LOT 0 | Foundation | TERMINE |
 | GOV 1.1 + REG V1 | Gouvernance / référentiel traçable et noyau réglementaire | PRÊT À FIGER |
 | LOT 1 | Parent historique : identité, sociétés, marchés et structure contractuelle | Découpé en LOT 1A + LOT 1B |
-| LOT 1A | Authentification / Utilisateurs / Sociétés | BLOQUE jusqu'à validation GOV 1.1 |
+| LOT 1A | Authentification / Utilisateurs / Sociétés | EN COURS — implémentation autorisée |
 | LOT 1B | Marchés / Lots / Structure contractuelle | BLOQUE |
 | LOT 2A | Formules | BLOQUE |
 | LOT 2B | Bordereau | BLOQUE |

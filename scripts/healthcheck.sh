@@ -49,5 +49,5 @@ if [ "$fail" -ne 0 ]; then
 fi
 echo 'Storage............. OK'
 echo "App Version......... $(tr -d '[:space:]' < VERSION)"
-echo 'DB Schema........... LOT0'
+echo 'DB Schema........... migrations applied'
 echo 'SYSTEM READY'

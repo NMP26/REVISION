@@ -1,12 +1,12 @@
 STATUS: APPROVED
 SOURCE: GOV 1.1 — critères d'acceptation documentaires
-IMPLEMENTATION: NON AUTORISÉE DANS GOV 1.1
+IMPLEMENTATION: LOT 1A AUTORISÉE ; LOT 1B NON AUTORISÉE
 
 # Plan LOT 01
 
 LOT 1 est le lot parent historique du Blueprint. Il est exécuté en deux
-sous-lots : LOT 1A et LOT 1B. Aucun développement du LOT 1 n'est autorisé
-pendant GOV 1.1.
+sous-lots : LOT 1A et LOT 1B. LOT 1A est autorisé en implémentation ; LOT 1B
+reste interdit.
 
 ## LOT 1A — Authentification / Utilisateurs / Sociétés
 
@@ -17,9 +17,11 @@ pendant GOV 1.1.
 - validations backend, API et UI ;
 - persistance PostgreSQL et traçabilité.
 
-L'architecture d'authentification n'est pas encore choisie. Sessions,
-tokens, récupération/changement de mot de passe et permissions détaillées
-restent TBD jusqu'à décision documentée.
+L'implémentation validée utilise un Custom User Django identifié par email,
+des sessions Django sécurisées et une protection CSRF. Le rattachement est
+porté par Membership avec les rôles OWNER, ADMIN et MEMBER. Le changement
+de mot de passe est livré ; la récupération complète par email reste
+planifiée tant que l'infrastructure email n'est pas disponible.
 
 ### Critères d'acceptation documentaires
 
@@ -40,8 +42,13 @@ TRACEABILITY.md :
 - SOC-008 : UI conforme aux sketches/specs ;
 - SOC-009 : tests backend ;
 - SOC-010 : tests API pertinents.
-- SOC-011 : rattachement utilisateur/société si cette relation est retenue par la spec.
+- SOC-011 : rattachement utilisateur/société via Membership.
 - SOC-012 : tests frontend pertinents.
+
+Le périmètre livré inclut également les endpoints d'authentification
+(connexion, déconnexion, utilisateur courant et changement de mot de passe),
+la limitation configurable des tentatives de connexion, les contrôles
+OWNER/ADMIN/MEMBER et le logo de société plafonné à 5 MiB.
 
 ### Definition of Done LOT 1A
 
@@ -66,7 +73,7 @@ validation GOV 1.1.
   OS de commencement, délai, TVA et montant HT ;
 - choix du mode de gestion de la révision ;
 - support mono-formule et multi-formules ;
-- `MarketLot), cardinalité 0..N lots et contrainte `Lot != Formula` ;
+- `MarketLot`, cardinalité 0..N lots et contrainte `Lot != Formula` ;
 - architecture compatible avec `RevisionGroup`, `PriceSchedule` et
   `PriceItem`.
 
@@ -84,5 +91,6 @@ n'autorise pas le développement.
 
 ## État de gouvernance
 
-LOT 1A et LOT 1B restent BLOQUÉS. Ce document définit les critères futurs ;
-il ne commence ni LOT 1A ni LOT 1B.
+LOT 1A est en implémentation autorisée. LOT 1B reste BLOQUÉ et ne commence
+qu'après validation de LOT 1A, sauf décision de gouvernance ultérieure
+explicitement documentée.
