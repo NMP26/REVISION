@@ -218,6 +218,20 @@ de sélectionner à nouveau ce marché dans ses sous-écrans.
 
 ## 6. Utilisateurs et droits
 
+### Découpage de gouvernance du LOT 1
+
+Le LOT 1 demeure le lot parent historique de ce Blueprint. Pour son
+exécution, il est précisé en deux sous-lots :
+
+```text
+LOT 1
+ ├── LOT 1A — Authentification / Utilisateurs / Sociétés
+ └── LOT 1B — Marchés / Lots / Structure contractuelle
+```
+
+Cette précision de gouvernance ne supprime pas le LOT 1 historique et
+n'autorise encore aucun développement.
+
 Prévoir l'authentification, la déconnexion, la récupération/changement
 de mot de passe et la gestion des sessions.
 
@@ -316,15 +330,18 @@ calendrier.
 
 ## 9. Epoque de base
 
-Règle métier actuellement retenue :
+La règle de référence est déterminée par la procédure du marché :
 
 ``` text
 Date d'ouverture des plis : 12/11/2025
 => Epoque de base : NOVEMBRE 2025
 ```
 
-Le mois d'ouverture des plis détermine donc le mois de référence, même
-si l'ouverture intervient en cours de mois.
+Pour un marché passé avec appel à concurrence, le mois de la date limite
+de remise des offres détermine le mois de référence. Pour un marché
+négocié révisable, c'est le mois de la date de signature du marché par
+l'attributaire. La date et la règle de référence sont conservées
+explicitement ; elles ne sont pas réduites à la seule date d'ouverture.
 
 Cette règle doit rester encapsulée dans le moteur/règles réglementaires
 afin de pouvoir être adaptée si nécessaire.
@@ -858,8 +875,9 @@ Affichage attendu :
 Indice juillet 2026 : NON PUBLIE
 ```
 
-Le traitement réglementaire applicable doit être isolé dans les règles
-réglementaires et ne doit être activé qu'après validation juridique.
+Le traitement réglementaire applicable est isolé dans regulatory/.
+Les règles REG-001 à REG-016 sont vérifiées ; tout comportement non
+couvert reste PENDING_VALIDATION.
 
 ------------------------------------------------------------------------
 
@@ -1630,12 +1648,11 @@ Créer une couche dédiée :
 regulatory_rules/
 ```
 
-Ne pas figer arbitrairement les points qui nécessitent encore validation
-officielle, notamment : - traitement exact des indices provisoires -
-dernier décompte lorsque des indices définitifs ne sont pas
-disponibles - indice non encore publié - travaux exécutés après le délai
-contractuel corrigé - règles réglementaires exactes d'arrondi - toute
-règle issue de textes officiels non encore confirmée
+Ne pas figer arbitrairement les points qui nécessitent encore validation,
+notamment : le mode informatique exact d'arrondi, les effets détaillés
+des arrêts/reprises, l'imputabilité du retard, les exclusions de
+catégories, « location = non révisable », les cas d'index provisoire hors
+article 12 et toute autre exception non explicitement sourcée.
 
 Marquer ces comportements :
 
