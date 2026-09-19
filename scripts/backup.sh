@@ -8,6 +8,7 @@ out_dir="$ROOT_DIR/backups/$timestamp"
 mkdir -p "$out_dir"
 chmod 700 "$out_dir"
 docker compose -p revision-prix --env-file .env -f compose.yaml exec -T revision-prix-postgres pg_dump --format=custom --no-owner --no-privileges -U "$POSTGRES_USER" -d "$POSTGRES_DB" > "$out_dir/postgresql.dump"
+test -s "$out_dir/postgresql.dump"
 docker compose -p revision-prix --env-file .env -f compose.yaml exec -T revision-prix-backend python manage.py showmigrations --plan > "$out_dir/migrations.txt"
 {
   echo "timestamp_utc=$timestamp"

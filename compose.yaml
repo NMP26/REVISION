@@ -24,7 +24,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: revision-prix-backend:0.1.0
+    image: revision-prix-backend:0.4.1
     environment:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
       DJANGO_DEBUG: ${DJANGO_DEBUG}
@@ -35,6 +35,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_HOST: revision-prix-postgres
       POSTGRES_PORT: 5432
+    volumes:
+      - revision-prix-media:/app/media
     depends_on:
       revision-prix-postgres:
         condition: service_healthy
@@ -53,7 +55,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    image: revision-prix-frontend:0.1.0
+    image: revision-prix-frontend:0.4.1
     ports:
       - "127.0.0.1:12701:80"
     depends_on:
@@ -71,6 +73,8 @@ services:
 volumes:
   revision-prix-postgres-data:
     name: revision-prix-postgres-data
+  revision-prix-media:
+    name: revision-prix-media
 
 networks:
   revision-prix-internal:

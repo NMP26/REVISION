@@ -45,6 +45,7 @@ migrations:
 	$(COMPOSE) exec -T revision-prix-backend python manage.py makemigrations --check --dry-run
 
 migrate:
+	$(MAKE) backup
 	$(COMPOSE) exec -T revision-prix-backend python manage.py migrate --noinput
 
 backup:

@@ -171,6 +171,7 @@ Exigence → ADR → Spec → Code → Migration → Test → Version
 | SEC-001 | Aucun secret n'est versionné et PostgreSQL n'est pas exposé publiquement. | Blueprint §50 | ADR-LOT0-001 | architecture/SECURITY.md | LOT 0 | — | make doctor | VALIDATED | v0.1.0 |
 | OPS-001 | GitHub NMP26/REVISION est la source officielle du code versionné. | Décision publication LOT 0 | ADR-GOV-014 | architecture/DEPLOYMENT.md | dépôt Git | — | revue Git | APPROVED | GOV-1.1 |
 | OPS-002 | Aucun lot suivant ne démarre sans autorisation explicite et traçabilité. | Cahier cumulatif §18 | ADR-GOV-015 | plans/MASTER_PLAN.md | gouvernance | — | revue documentaire | APPROVED | GOV-1.1 |
+| OPS-003 | Les données saisies en production sont persistantes. Un déploiement, rebuild, upgrade ou migration ne doit jamais entraîner leur suppression ou leur réinitialisation. | Exigence audit persistance production | ADR-GOV-016 | architecture/DEPLOYMENT.md; docs/OPERATIONS.md; docs/MIGRATION.md; docs/BACKUP_RESTORE.md | compose.yaml; scripts/backup.sh; Makefile | — | make backup; make doctor; vérification volumes; test down/up documenté | VALIDATED | v0.4.1 |
 
 Les exigences `APPROVED` et `PLANNED` ne signifient pas que le code
 correspondant existe. Aucun élément n'est marqué `IMPLEMENTED`, `TESTED`
