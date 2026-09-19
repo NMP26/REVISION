@@ -45,6 +45,37 @@ Statut: ACCEPTED
 - `make push-images`, `make release`, `make deploy` et `make rollback` échouent explicitement tant qu'un registry et une procédure de release ne sont pas configurés.
 - Les règles réglementaires et le métier de calcul sont reportés aux lots ultérieurs.
 
+## ADR-LOT1B-001 — 2026-09-19 — Gouvernance du modèle Marché et Lots
+
+ADR-ID: ADR-LOT1B-001
+Date: 2026-09-19
+Sujet: Faits contractuels, règles réglementaires et structure des marchés
+Contexte: La conception du LOT 1B est approuvée. Les dates contractuelles
+peuvent être absentes lors de la création et les règles de référence
+dépendent de la procédure applicable. Le modèle doit aussi représenter
+les lots sans les confondre avec les formules et conserver la sémantique
+du délai exprimé en jours ou en mois.
+Décision: Les faits contractuels sont stockés dans `Market` sans inventer
+de date ; les règles réglementaires de référence appartiennent à
+`regulatory/` et au moteur de calcul. `MarketLot` est une entité autonome
+reliée obligatoirement à `Market`, sans FK vers `MarketFormula`. Le délai
+est stocké par paire cohérente `contract_duration_value` /
+`contract_duration_unit` (`DAYS` ou `MONTHS`) ; aucune conversion
+`MONTHS × 30` n'est autorisée. La structure contractuelle est portée par
+`formula_structure` (`SINGLE` ou `MULTIPLE`) et ne crée aucune formule.
+Les permissions réutilisent `Membership` du LOT 1A.
+Motif: Préserver les faits saisis, éviter d'encoder une règle
+réglementaire non validée, séparer lot et formule, et ne pas altérer la
+durée par une conversion arbitraire.
+Impact: `Market` accepte les dates factuelles nullables et les statuts
+`ACTIVE`/`ARCHIVED`. `MarketLot` porte sa contrainte d'unicité par marché.
+Les règles métier et réglementaires dépendantes de la procédure restent
+hors du modèle de persistance. La présente décision approuve la
+documentation et la préparation du plan ; elle n'autorise ni modèles
+Django, ni migration, ni code LOT 1B.
+Exigences liées: MKT-001..MKT-020, LOT-001..LOT-004
+Statut: ACCEPTED
+
 ## ADR-GOV-001 — Périmètre LOT 1A
 
 ADR-ID: ADR-GOV-001

@@ -1,6 +1,7 @@
 from django.urls import path
 from accounts.views import CsrfView, CurrentUserView, LoginView, LogoutView, PasswordChangeView
 from companies.views import CompanyDetailView, CompanyListCreateView
+from markets.urls import urlpatterns as market_urlpatterns
 from .views import health
 
 urlpatterns = [
@@ -13,3 +14,5 @@ urlpatterns = [
     path("companies/", CompanyListCreateView.as_view(), name="company-list-create"),
     path("companies/<uuid:company_id>/", CompanyDetailView.as_view(), name="company-detail"),
 ]
+
+urlpatterns += market_urlpatterns

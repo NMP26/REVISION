@@ -20,6 +20,7 @@ INSTALLED_APPS = [
     "axes",
     "accounts",
     "companies",
+    "markets",
     "core",
 ]
 MIDDLEWARE = [

@@ -1,37 +1,96 @@
-STATUS: DRAFT
-SOURCE: GOV 1.1 — contraintes fonctionnelles approuvées, détail à valider
+STATUS: APPROVED — DESIGN / IMPLEMENTED
+IMPLEMENTATION: IMPLEMENTED — TESTED, NON VALIDATED
+SOURCE: ADR-LOT1B-001, décisions LOT 1B approuvées
 
-# Marchés
+# Marchés et lots
 
-## Éléments fonctionnels APPROVED
+## 1. Market
 
-| ID | Obligation |
-|---|---|
-| MKT-001 | Supporter un marché mono-formule. |
-| MKT-002 | Supporter un marché multi-formules. |
-| MKT-003 | Autoriser zéro à plusieurs MarketLot. |
-| MKT-004 | Permettre le choix du mode de gestion de la révision. |
-| MKT-005 | Rattacher un marché à une société. |
-| MKT-006 | Conserver la date d'ouverture des plis. |
-| MKT-007 | Conserver l'époque de base. |
-| MKT-008 | Conserver l'OS de commencement. |
-| MKT-009 | Conserver le délai contractuel. |
-| MKT-010 | Conserver la TVA. |
-| MKT-011 | Conserver le montant HT. |
-| MKT-012 | Conserver la règle et la date de référence des indices selon la procédure du marché. |
-| LOT-001 | Autoriser plusieurs PriceItem dans un lot. |
-| LOT-002 | Maintenir Lot != Formula. |
+`Market` est rattaché obligatoirement à `Company` par `company`.
+Pour sécuriser l'isolation et simplifier PATCH, `company` est immuable
+après la création du marché.
 
-Les données contractuelles comprennent au minimum date d'ouverture des
-plis, date limite de remise des offres, date de signature si marché
-négocié, règle et mois de référence, époque de base, OS de commencement,
-délai, TVA et montant HT.
-L'architecture doit rester compatible avec RevisionGroup, PriceSchedule et
-PriceItem.
+Champs obligatoires :
 
-## Éléments DRAFT / TBD
+- `market_number` ;
+- `contracting_authority` ;
+- `subject`.
 
-Les champs définitifs, cardinalités, contraintes d'intégrité, API, UI et
-règles de modification restent à spécifier avant implémentation. Avant
-les migrations définitives du LOT 1B, le schéma proposé doit être présenté
-pour validation.
+`amount_ht` est un `Decimal(18,2)` nullable à la création et doit être
+supérieur ou égal à zéro lorsqu'il est renseigné. `vat_rate` est un
+Decimal stocké en pourcentage humain (`20.00` signifie `20 %`) avec la
+contrainte métier `0 <= vat_rate <= 100`; aucun taux n'est hardcodé.
+
+Les dates factuelles suivantes sont nullables :
+
+- `date_limite_remise_offres` ;
+- `date_ouverture_plis` ;
+- `date_signature` ;
+- `date_os_commencement`.
+
+Aucune date ne doit être inventée. Aucune de ces dates n'est
+automatiquement la date réglementaire de référence de la révision.
+`Market` conserve les faits ; les règles dépendantes de la procédure
+appartiennent à `regulatory/` et au moteur de calcul.
+
+Le délai est porté par `contract_duration_value` et
+`contract_duration_unit`, dont l'unité vaut `DAYS` ou `MONTHS`. Les deux
+champs sont renseignés ensemble ou tous deux absents. La valeur est un
+entier strictement positif lorsqu'elle existe. `MONTHS` n'est jamais
+converti en jours par multiplication par 30.
+
+`formula_structure` vaut `SINGLE` ou `MULTIPLE` et décrit uniquement la
+structure contractuelle. Il ne crée ni ne contient une formule.
+
+`status` vaut `ACTIVE` ou `ARCHIVED`, avec `ACTIVE` par défaut. Il n'y a
+pas de statut `SUSPENDED`; les suspensions/reprises futures sont des
+événements `WorkSuspension` distincts.
+
+Le numéro est unique par société uniquement :
+`UniqueConstraint(company, market_number)`. L'unicité globale n'est pas
+retenue dans LOT 1B et pourra être réévaluée sur preuve d'un cas réel.
+
+## 2. MarketLot
+
+`MarketLot` possède une FK obligatoire vers `Market` et les champs :
+
+- `lot_number` / `code`, obligatoire ;
+- `title`, obligatoire ;
+- `description`, optionnelle ;
+- `amount_ht Decimal(18,2)`, nullable ;
+- `display_order`, entier supérieur ou égal à zéro ;
+- `active`, booléen, défaut `true` ;
+- `notes`, optionnelles ;
+- timestamps.
+
+La contrainte est `UniqueConstraint(market, lot_number)`. Aucun lot
+fictif n'est créé automatiquement. Aucun champ persistant `has_lots` n'est
+prévu. Aucun contrôle automatique ne compare la somme des montants de
+lots au montant du marché. `MarketLot` n'a aucune FK vers
+`MarketFormula`.
+
+## 3. Permissions
+
+Le contrôle réutilise `Membership` du LOT 1A :
+
+- `OWNER` et `ADMIN` actifs : création et modification de `Market` et
+  `MarketLot` ;
+- `MEMBER` actif : lecture ;
+- sans `Membership` actif : aucun accès métier ;
+- superuser Django : exception administrative système existante.
+
+Aucun second système RBAC n'est créé.
+
+## 4. Compatibilité inter-lots
+
+Le design reste compatible avec `RevisionGroup`, `PriceSchedule`,
+`PriceItem` et les formules futures, sans introduire ces relations dans
+le modèle LOT 1B. La séparation `MarketLot != MarketFormula` est
+obligatoire.
+
+## 5. État et périmètre
+
+Les champs, cardinalités, contraintes et permissions ci-dessus sont
+APPROVED au niveau design. L'implémentation backend, les migrations,
+l'API réelle, le frontend et les tests LOT 1B sont PLANNED et ne sont pas
+créés dans cette phase.

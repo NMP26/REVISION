@@ -1,96 +1,143 @@
-STATUS: APPROVED
-SOURCE: GOV 1.1 — critères d'acceptation documentaires
-IMPLEMENTATION: LOT 1A AUTORISÉE ; LOT 1B NON AUTORISÉE
+STATUS: APPROVED — LOT 1A GELÉ v0.3.0 / LOT 1B IMPLEMENTÉ
+IMPLEMENTATION: LOT 1A GELÉE ; LOT 1B IMPLEMENTED — TESTED, NON VALIDATED
+SOURCE: ADR-LOT1B-001, specs/02-marches.md
 
 # Plan LOT 01
 
-LOT 1 est le lot parent historique du Blueprint. Il est exécuté en deux
-sous-lots : LOT 1A et LOT 1B. LOT 1A est autorisé en implémentation ; LOT 1B
-reste interdit.
+LOT 1 reste le lot parent historique du Blueprint. Il est exécuté en deux
+sous-lots : LOT 1A et LOT 1B. LOT 1A reste gelé sur `v0.3.0` ; la présente
+phase ne modifie pas son fonctionnement. LOT 1B est implémenté et testé ;
+sa validation finale reste une étape d'audit distincte.
 
-## LOT 1A — Authentification / Utilisateurs / Sociétés
+## LOT 1A — état gelé
 
-### Périmètre
+La version de référence est `v0.3.0` / commit
+`0bcafd0d3b50637578c4afe47838c8d897f9af61`. Aucun changement fonctionnel
+LOT 1A n'est autorisé dans le cadre du plan LOT 1B.
 
-- authentification, déconnexion et gestion des utilisateurs ;
-- sociétés : création, consultation, modification et archivage selon la spec ;
-- validations backend, API et UI ;
-- persistance PostgreSQL et traçabilité.
+## LOT 1B — périmètre approuvé
 
-L'implémentation validée utilise un Custom User Django identifié par email,
-des sessions Django sécurisées et une protection CSRF. Le rattachement est
-porté par Membership avec les rôles OWNER, ADMIN et MEMBER. Le changement
-de mot de passe est livré ; la récupération complète par email reste
-planifiée tant que l'infrastructure email n'est pas disponible.
+`Market` : FK `Company` obligatoire, numéro obligatoire et unique par
+société, autorité contractante et objet obligatoires, montant HT nullable
+en `Decimal(18,2)` avec validation positive ou nulle, dates factuelles
+nullables, TVA en pourcentage humain, structure `SINGLE`/`MULTIPLE`, délai
+par valeur/unité `DAYS` ou `MONTHS`, statut `ACTIVE`/`ARCHIVED`.
+La société est choisie à la création puis immuable.
 
-### Critères d'acceptation documentaires
+`MarketLot` : FK `Market` obligatoire, numéro/code et titre obligatoires,
+description/montant/notes optionnels, ordre d'affichage >= 0, actif par
+défaut, timestamps et unicité `(market, lot_number)`. Aucun lot fictif,
+`has_lots`, lien direct vers `MarketFormula` ou rapprochement automatique
+des montants.
 
-Chaque critère doit être prouvé par un test ou un contrôle identifié dans
-TRACEABILITY.md :
+Permissions : réutilisation de `Membership` LOT 1A ; OWNER/ADMIN actifs
+pour create/update, MEMBER actif pour read, aucun accès sans membership
+actif, exception superuser Django existante.
 
-- AUTH-001 : accès authentifié aux fonctions privées ;
-- AUTH-002 : sessions/tokens conformes à l'architecture retenue ;
-- AUTH-003 : refus d'accès non authentifié ;
-- AUTH-004 : aucune donnée sensible exposée ;
-- SOC-001 : création d'une société ;
-- SOC-002 : consultation d'une société ;
-- SOC-003 : modification d'une société ;
-- SOC-004 : validations des données ;
-- SOC-005 : champs conformes à la spec société ;
-- SOC-006 : persistance PostgreSQL ;
-- SOC-007 : API société ;
-- SOC-008 : UI conforme aux sketches/specs ;
-- SOC-009 : tests backend ;
-- SOC-010 : tests API pertinents.
-- SOC-011 : rattachement utilisateur/société via Membership.
-- SOC-012 : tests frontend pertinents.
+## Plan d'implémentation futur
 
-Le périmètre livré inclut également les endpoints d'authentification
-(connexion, déconnexion, utilisateur courant et changement de mot de passe),
-la limitation configurable des tentatives de connexion, les contrôles
-OWNER/ADMIN/MEMBER et le logo de société plafonné à 5 MiB.
+Ce plan identifie les travaux réalisés et les contrôles restant à mener.
 
-### Definition of Done LOT 1A
+### A. Backend models
 
-- exigences autorisées implémentées ;
-- migrations appliquées ;
-- tests réussis ;
-- traçabilité mise à jour ;
-- aucune régression LOT 0 ;
-- `make doctor` réussi ;
-- revue avant commit/version.
+- `backend/markets/apps.py`
+- `backend/markets/models.py`
+- `backend/markets/admin.py` si l'interface administrative le justifie
+- mise à jour ciblée de la configuration Django uniquement si nécessaire
 
-Le passage à l'implémentation exige une autorisation explicite après
-validation GOV 1.1.
+Créer `Market` et `MarketLot` selon `architecture/DATA_MODEL.md`, sans
+introduire `MarketFormula` ni `WorkSuspension` dans LOT 1B.
 
-## LOT 1B — Marchés / Lots / Structure contractuelle
+### B. Migrations
 
-### Périmètre minimal
+- `backend/markets/migrations/0001_initial.py`
 
-- création et modification d'un marché ;
-- rattachement à une société ;
-- données contractuelles : date d'ouverture des plis, époque de base,
-  OS de commencement, délai, TVA et montant HT ;
-- choix du mode de gestion de la révision ;
-- support mono-formule et multi-formules ;
-- `MarketLot`, cardinalité 0..N lots et contrainte `Lot != Formula` ;
-- architecture compatible avec `RevisionGroup`, `PriceSchedule` et
-  `PriceItem`.
+La migration `0001_initial.py` a été produite après revue du schéma et ne
+contient que les objets LOT 1B prévus.
 
-### Critères d'acceptation documentaires
+### C. Serializers / API
 
-Le futur LOT 1B devra démontrer au minimum MKT-001 à MKT-011, LOT-001,
-LOT-002 et la compatibilité avec FRM-001, BDP-002 et BDP-010. Les critères
-de création, modification, API, validations, persistance, UI et tests
-seront détaillés dans la spec marchés avant développement.
+- `backend/markets/serializers.py`
+- `backend/markets/views.py`
+- `backend/markets/urls.py`
+- `backend/core/urls.py` (raccordement des routes)
 
-Avant toute migration définitive du LOT 1B, l'agent présente le schéma de
-données proposé, ses cardinalités, contraintes et relations pour
-validation explicite. Cette présentation n'est pas une migration et
-n'autorise pas le développement.
+Les validations couvriront les champs obligatoires, montants, TVA,
+cohérence de durée, unités, statuts et contraintes d'unicité.
 
-## État de gouvernance
+### D. Permissions
 
-LOT 1A est en implémentation autorisée. LOT 1B reste BLOQUÉ et ne commence
-qu'après validation de LOT 1A, sauf décision de gouvernance ultérieure
-explicitement documentée.
+- `backend/markets/permissions.py`
+- réutilisation vérifiée de `backend/companies/models.py` et
+  `backend/companies/permissions.py`
+
+Aucun RBAC parallèle ne sera introduit.
+
+### E. Tests backend
+
+- `backend/markets/tests.py`
+- `backend/markets/tests.py`
+
+Cas prévus : création/mise à jour, accès OWNER/ADMIN/MEMBER, absence de
+membership, montant et TVA, dates nulles, délai incohérent, absence de
+conversion mois/jours, statuts, unicités Market/MarketLot et absence de
+lot automatique.
+
+### F. Frontend routes/pages
+
+- `frontend/src/markets/MarketsPage.tsx`
+- `frontend/src/markets/MarketsPage.tsx` (liste, création et détail)
+- `frontend/src/App.tsx`
+- `frontend/src/lib/api.ts`
+
+Les écrans réutiliseront le contexte de société/marché sans redemander le
+marché dans ses sous-écrans.
+
+### G. Formulaire Market réutilisable
+
+- `frontend/src/markets/MarketForm.tsx`
+- `frontend/src/markets/MarketForm.test.tsx`
+
+Le formulaire distinguera dates absentes et dates saisies, affichera la
+TVA comme pourcentage humain et imposera la cohérence du délai sans
+inventer de valeur.
+
+### H. Gestion MarketLot
+
+- `frontend/src/markets/MarketsPage.tsx` (section lots)
+- `frontend/src/markets/MarketLotForm.tsx`
+- `frontend/src/markets/MarketLotForm.test.tsx`
+
+La gestion couvrira l'ordre, l'activation et l'unicité signalée par l'API,
+sans champ `has_lots` ni totalisation automatique vers le marché.
+
+### I. Tests frontend
+
+- `frontend/src/markets/MarketsPage.test.tsx`
+- `frontend/src/markets/MarketsPage.test.tsx`
+- tests des formulaires ci-dessus
+
+Les tests vérifieront les droits d'interface comme représentation de l'API,
+sans considérer le masquage d'un bouton comme une autorisation.
+
+### J. Documentation / traçabilité finale
+
+- mise à jour de `specs/02-marches.md`
+- mise à jour de `architecture/DATA_MODEL.md` et `architecture/API.md`
+- mise à jour de `TRACEABILITY.md`
+- mise à jour de `ROADMAP.md`, `BLUEPRINT.md` et du présent plan
+
+Cette étape a produit les preuves `IMPLEMENTED` et `TESTED`. Le statut
+`VALIDATED` reste réservé à l'audit final.
+
+### K. Audit
+
+- revue `git diff --check`, statut et diff stat
+- contrôle d'absence de secret et d'infrastructure modifiée
+- audit des permissions et de la non-régression LOT 1A
+- revue du schéma avant migration
+
+## Critère de reprise
+
+La phase d'implémentation LOT 1B est terminée pour Market et MarketLot.
+Les composants de lots ultérieurs restent hors périmètre.

@@ -241,6 +241,13 @@ Consultation
 Les permissions réelles sont contrôlées côté backend. Masquer un bouton
 React ne constitue jamais une autorisation.
 
+Pour les marchés et leurs lots, le contrôle métier réutilise `Membership`
+du LOT 1A : un `OWNER` ou `ADMIN` actif peut créer et modifier un marché
+ou un lot ; un `MEMBER` actif dispose de la lecture ; sans `Membership`
+actif, aucun accès métier n'est accordé. Le superuser Django conserve
+l'exception administrative système existante. Aucun second RBAC n'est
+introduit.
+
 ------------------------------------------------------------------------
 
 ## 7. Société
@@ -298,59 +305,92 @@ Company 1 ---- N Market
 id / UUID
 company_id *
 
-numero_marche *
-maitre_ouvrage *
-objet *
+market_number *
+contracting_authority *
+subject *
 
-montant_ht
-tva
+amount_ht Decimal(18,2), nullable, >= 0
+vat_rate Decimal, 0..100, pourcentage humain (20.00 = 20 %)
+formula_structure: SINGLE | MULTIPLE
 
-date_ouverture_plis *
-date_os_commencement *
+date_limite_remise_offres nullable
+date_ouverture_plis nullable
+date_signature nullable
+date_os_commencement nullable
 
-delai_mois
-delai_jours
+contract_duration_value nullable, entier strictement positif
+contract_duration_unit nullable, DAYS | MONTHS
 
-status
+status: ACTIVE | ARCHIVED, défaut ACTIVE
 
 created_at
 updated_at
 archived_at
 ```
 
-Statuts minimum : - BROUILLON - ACTIF - SUSPENDU - TERMINE - ARCHIVE
+`UniqueConstraint(company, market_number)` est la seule contrainte
+d'unicité du numéro dans LOT 1B. L'unicité globale n'est pas retenue ;
+elle pourra être réévaluée si un cas réel démontre qu'une même société
+peut porter deux marchés ayant exactement le même numéro.
 
-L'état `SUSPENDU` ne remplace pas l'enregistrement des périodes
-d'arrêt/reprise nécessaires au calcul.
+Les deux champs de délai sont cohérents : tous deux renseignés ou tous
+deux absents. Une valeur `MONTHS` n'est jamais convertie en jours par une
+multiplication arbitraire par 30.
+
+Les suspensions et reprises ne sont pas un statut de `Market` : elles
+sont enregistrées par des événements `WorkSuspension` distincts.
 
 Dates affichées dans l'interface : `JJ/MM/AAAA`, avec sélecteur de
 calendrier.
 
 ------------------------------------------------------------------------
 
-## 9. Epoque de base
+## 8.1 Lots de marché
 
-La règle de référence est déterminée par la procédure du marché :
+### Entité `MarketLot`
 
 ``` text
-Date d'ouverture des plis : 12/11/2025
-=> Epoque de base : NOVEMBRE 2025
+id / UUID
+market_id *
+lot_number / code *
+title *
+description nullable
+amount_ht Decimal(18,2), nullable
+display_order entier >= 0
+active bool, défaut true
+notes nullable
+created_at
+updated_at
 ```
 
-Pour un marché passé avec appel à concurrence, le mois de la date limite
-de remise des offres détermine le mois de référence. Pour un marché
-négocié révisable, c'est le mois de la date de signature du marché par
-l'attributaire. La date et la règle de référence sont conservées
-explicitement ; elles ne sont pas réduites à la seule date d'ouverture.
+`UniqueConstraint(market, lot_number)` est obligatoire. `MarketLot` est
+indépendant de `MarketFormula` : aucune clé étrangère directe ne relie
+les deux. Aucun lot fictif n'est créé automatiquement, aucun champ
+persistant `has_lots` n'est ajouté et aucun contrôle automatique
+`SUM(lots.amount_ht) = market.amount_ht` n'est imposé.
 
-Cette règle doit rester encapsulée dans le moteur/règles réglementaires
-afin de pouvoir être adaptée si nécessaire.
+------------------------------------------------------------------------
+
+## 9. Epoque de base
+
+Les dates enregistrées dans `Market` sont des faits contractuels. Aucune
+date ne doit être inventée pour satisfaire le modèle et aucune de ces
+dates n'est automatiquement la date réglementaire de référence d'une
+révision. Les règles de référence dépendant de la procédure seront
+définies et validées dans `regulatory/` et le moteur de calcul.
+
+Principe d'architecture : `FACTS` dans `Market`, `RULES` dans le moteur
+réglementaire/calcul. L'absence de `date_limite_remise_offres` ou de
+`date_ouverture_plis` est donc valide au niveau de la persistance.
 
 ------------------------------------------------------------------------
 
 ## 10. Formule contractuelle
 
-La formule est définie lors de la création du marché.
+LOT 1B conserve uniquement la structure contractuelle du marché via
+`formula_structure` (`SINGLE` ou `MULTIPLE`). Ce champ ne crée ni ne
+stocke de formule. La définition détaillée de `MarketFormula` et de ses
+termes appartient au lot Formules.
 
 Exemple d'affichage :
 
@@ -361,7 +401,7 @@ K = 0,15 + 0,85 x (BAT3 / BAT3_0)
 Ne jamais stocker uniquement cette chaîne comme seule représentation
 métier.
 
-### `MarketFormula`
+### `MarketFormula` (lot ultérieur)
 
 ``` text
 id
@@ -374,7 +414,7 @@ created_at
 effective_from
 ```
 
-### `MarketFormulaTerm`
+### `MarketFormulaTerm` (lot ultérieur)
 
 ``` text
 id
@@ -1056,6 +1096,8 @@ USER
  +---------------- COMPANY
  |                    |
  |                    `------ MARKET
+ |                              |
+ |                              +-- MARKET_LOT
  |                              |
  |                              +-- MARKET_FORMULA
  |                              |      |
