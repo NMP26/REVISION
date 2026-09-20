@@ -35,6 +35,38 @@ describe('MarketsPage', () => {
     expect(screen.getAllByRole('button', { name: 'Modifier' })).toHaveLength(2)
   })
 
+  it('distingue le titulaire société de la société gestionnaire', async () => {
+    vi.mocked(getMarket).mockResolvedValue({
+      ...market('OWNER'),
+      company_detail: { id: 'company-1', raison_sociale: 'Société gestionnaire' },
+      holder_type: 'SOLE_COMPANY',
+      holder_company: 'company-2',
+      holder_company_detail: { id: 'company-2', raison_sociale: 'Titulaire société' },
+    })
+    vi.mocked(listMarketLots).mockResolvedValue([])
+    render(<MemoryRouter initialEntries={['/app/markets/market-1']}><Routes><Route path="/app/markets/:id" element={<MarketDetailPage />} /></Routes></MemoryRouter>)
+    expect((await screen.findByText('Titulaire :')).parentElement).toHaveTextContent('Titulaire : Titulaire société')
+    expect(screen.getByText('Société gestionnaire :').parentElement).toHaveTextContent('Société gestionnaire : Société gestionnaire')
+    expect(screen.queryByText(/^Titulaire : Société gestionnaire$/)).not.toBeInTheDocument()
+  })
+
+  it('affiche le Consortium titulaire sans le confondre avec la société gestionnaire', async () => {
+    vi.mocked(getMarket).mockResolvedValue({
+      ...market('OWNER'),
+      company_detail: { id: 'naxu', raison_sociale: 'NAXU' },
+      holder_type: 'CONSORTIUM',
+      holder_company: null,
+      holder_company_detail: null,
+      consortium: 'consortium-1',
+      consortium_detail: { id: 'consortium-1', name: 'INGC/NAXU', owner_company: 'naxu' },
+    })
+    vi.mocked(listMarketLots).mockResolvedValue([])
+    render(<MemoryRouter initialEntries={['/app/markets/market-1']}><Routes><Route path="/app/markets/:id" element={<MarketDetailPage />} /></Routes></MemoryRouter>)
+    expect((await screen.findByText('Titulaire :')).parentElement).toHaveTextContent('Titulaire : Groupement INGC/NAXU')
+    expect(screen.getByText('Société gestionnaire :').parentElement).toHaveTextContent('Société gestionnaire : NAXU')
+    expect(screen.queryByText('Titulaire : NAXU')).not.toBeInTheDocument()
+  })
+
   it('affiche les dates métier au format français sans décalage', async () => {
     vi.mocked(getMarket).mockResolvedValue({
       ...market('OWNER'),

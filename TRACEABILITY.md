@@ -200,3 +200,11 @@ ajoute l'interface de gestion des groupements sans nouvelle migration DB.
 | Membres, mandataire, retrait dynamique et quotes-parts | formulaire Consortium avec validation décimale sans float | tests frontend et validations backend existantes |
 | Libellé Société gestionnaire | `frontend/src/markets/MarketForm.tsx` | `frontend/src/markets/MarketForm.test.tsx` |
 | Conservation du schéma et des données historiques | aucune migration ajoutée | `makemigrations --check --dry-run`, `migrate --plan`, `make test` |
+
+## Correctif d'affichage titulaire marché v0.5.2
+
+| Exigence | Implémentation | Vérification |
+|---|---|---|
+| Distinguer titulaire contractuel et société gestionnaire | `frontend/src/markets/MarketsPage.tsx` utilise `holder_type`, `consortium_detail` et `holder_company_detail` ; `Market.company` reste affiché comme société gestionnaire | `frontend/src/markets/MarketsPage.test.tsx` — cas `SOLE_COMPANY` et `CONSORTIUM` |
+| Afficher le Consortium titulaire sans le reconstruire depuis `Market.company` | Libellé `Titulaire : Groupement …` basé sur `consortium_detail` | tests frontend de non-confusion titulaire/gestionnaire |
+| Préserver le comportement société seule | Titulaire basé sur `holder_company_detail` avec repli API existant | test frontend `SOLE_COMPANY` |

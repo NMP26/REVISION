@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.5.2 — Market holder display
+
+- Détail marché : distinction explicite entre titulaire contractuel et société gestionnaire.
+- Affichage des Consortiums sous la forme `Titulaire : Groupement …`.
+- Conservation de l'affichage du titulaire société pour les marchés `SOLE_COMPANY`.
+- Tests frontend couvrant les deux types de titulaire et l'absence de confusion avec `Market.company`.
+- Aucune migration DB et aucune modification de données métier.
+
 ## v0.5.1 — Consortium management UI
 
 - Interface dédiée de gestion des groupements : liste, création, détail et modification.
