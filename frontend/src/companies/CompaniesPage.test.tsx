@@ -11,7 +11,7 @@ vi.mock('../lib/api', async () => {
 
 const company = (role: Company['current_user_role']): Company => ({
   id: 'company-1', raison_sociale: 'Société test', forme_juridique: '', capital_social: null,
-  ice: '', if_fiscal: '', rc: '', cnss: '', adresse_complete: '', ville: '', telephone: '',
+  ice: '', if_fiscal: '', rc: '', rc_city: '', cnss: '', adresse_complete: '', ville: '', telephone: '',
   email: '', site_web: '', representant_nom: '', representant_prenom: '', representant_fonction: '',
   logo: null, notes: '', status: 'ACTIVE', created_at: '', updated_at: '', archived_at: null,
   current_user_role: role,
@@ -35,6 +35,13 @@ describe('CompanyDetailPage permissions and errors', () => {
     renderDetail()
     await screen.findByText('Société test')
     expect(screen.queryByRole('button', { name: 'Modifier' })).not.toBeInTheDocument()
+  })
+
+  it('affiche le RC et sa ville séparément sans déduire la ville générale', async () => {
+    vi.mocked(getCompany).mockResolvedValue({ ...company('OWNER'), rc: '13165', rc_city: 'Inezgane', ville: 'Agadir' })
+    renderDetail()
+    expect(await screen.findByText('13165 – Inezgane')).toBeInTheDocument()
+    expect(screen.getByText('Agadir')).toBeInTheDocument()
   })
 
   it('affiche un état 403', () => {

@@ -1,6 +1,8 @@
 from django.urls import path
 from accounts.views import CsrfView, CurrentUserView, LoginView, LogoutView, PasswordChangeView
 from companies.views import CompanyDetailView, CompanyListCreateView
+from authorities.urls import urlpatterns as authority_urlpatterns
+from consortia.urls import urlpatterns as consortium_urlpatterns
 from markets.urls import urlpatterns as market_urlpatterns
 from .views import health
 
@@ -16,3 +18,5 @@ urlpatterns = [
 ]
 
 urlpatterns += market_urlpatterns
+urlpatterns += authority_urlpatterns
+urlpatterns += consortium_urlpatterns

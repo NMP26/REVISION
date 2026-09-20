@@ -35,3 +35,10 @@ Les endpoints futurs de formules, groupes, bordereaux, articles,
 décomptes, ventilations, indices et documents restent séparés. Les
 imports prévus conservent les espaces `imports/price_schedule/` et
 `imports/statements/`.
+## API LOT 1C
+
+- `GET/POST /api/authorities/` : autocomplétion et création explicite d’un maître d’ouvrage, limitée à une société accessible et administrable.
+- `PATCH /api/authorities/<id>/` : désactivation ou correction sans suppression historique.
+- `GET/POST /api/consortia/` : lecture des groupements accessibles et création par un OWNER/ADMIN de la société dossier.
+- `GET/PATCH /api/consortia/<id>/` : lecture et gestion contrôlée des membres actifs.
+- `Market` expose `holder_type`, `holder_company`, `consortium` et les résumés associés ; `contracting_authority` reste disponible pendant la transition.

@@ -176,3 +176,16 @@ Exigence → ADR → Spec → Code → Migration → Test → Version
 Les exigences `APPROVED` et `PLANNED` ne signifient pas que le code
 correspondant existe. Aucun élément n'est marqué `IMPLEMENTED`, `TESTED`
 ou `VALIDATED` sans preuve.
+## LOT 1C — autorités, groupements et RC
+
+Statut global : VALIDATED — v0.5.0. Preuve de migration pré/post validée ;
+tests backend/frontend, build et diagnostic d'exploitation passés.
+
+| Exigence | Implémentation | Vérification |
+|---|---|---|
+| RC et ville du RC distincts | `Company.rc`, `Company.rc_city`, migration additive | tests Company + formulaire/détail frontend |
+| Autorité structurée et autocomplete | `ContractingAuthority`, alias, lien CompanyAuthority, API | tests API de création, recherche et doublon |
+| Titulaire individuel ou groupement | `Market.holder_type`, `holder_company`, `consortium` | tests migration et API |
+| Groupement INGC/NAXU | Company réelles, MANDATAIRE/MEMBER, 50/50 Decimal | tests permissions NAXU |
+| Isolation | accès via Membership active d’une société membre | tests absence/inactivation Membership |
+| Historique futur | architecture snapshot prévue, moteur Revision hors périmètre | revue de conception — hors périmètre v0.5.0 |

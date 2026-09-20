@@ -35,17 +35,28 @@ export const ensureCsrf = () => api<{ csrfToken: string }>('/auth/csrf/')
 export type User = { id: string; email: string; first_name: string; last_name: string; is_active: boolean; is_staff: boolean; is_superuser: boolean }
 export type Company = {
   id: string; raison_sociale: string; forme_juridique: string; capital_social: string | null; ice: string;
-  if_fiscal: string; rc: string; cnss: string; adresse_complete: string; ville: string; telephone: string;
+  if_fiscal: string; rc: string; rc_city?: string; cnss: string; adresse_complete: string; ville: string; telephone: string;
   email: string; site_web: string; representant_nom: string; representant_prenom: string;
   representant_fonction: string; logo: string | null; notes: string; status: 'ACTIVE' | 'INACTIVE';
   created_at: string; updated_at: string; archived_at: string | null
   current_user_role: 'OWNER' | 'ADMIN' | 'MEMBER' | null
 }
 
+export type Authority = { id: string; name: string; short_name: string; active: boolean; created_at?: string; updated_at?: string }
+export type ConsortiumMember = { id?: string; company: string; company_detail?: { id: string; raison_sociale: string }; role: 'MANDATAIRE' | 'MEMBER'; share_percent: string | null; sort_order: number; active: boolean }
+export type Consortium = { id: string; owner_company: string; name: string; consortium_type: string; active: boolean; notes: string; members: ConsortiumMember[]; created_at: string; updated_at: string }
+
 export type Market = {
   id: string
   company: string
   company_detail: { id: string; raison_sociale: string }
+  holder_type?: 'SOLE_COMPANY' | 'CONSORTIUM'
+  holder_company?: string | null
+  holder_company_detail?: { id: string; raison_sociale: string } | null
+  consortium?: string | null
+  consortium_detail?: { id: string; name: string; owner_company: string } | null
+  authority?: string | null
+  authority_detail?: Authority | null
   market_number: string
   contracting_authority: string
   subject: string
@@ -96,6 +107,10 @@ export function saveCompany(data: Record<string, unknown>, id?: string) {
     : JSON.stringify(Object.fromEntries(Object.entries(data).filter(([key, value]) => key !== 'logo' && value !== null && value !== undefined)))
   return api<Company>(id ? `/companies/${id}/` : '/companies/', { method: id ? 'PATCH' : 'POST', body })
 }
+export function listAuthorities(query = '') { return api<Authority[]>(`/authorities/${query ? `?q=${encodeURIComponent(query)}` : ''}`) }
+export function saveAuthority(data: Record<string, unknown>) { return api<Authority>('/authorities/', { method: 'POST', body: JSON.stringify(data) }) }
+export function listConsortia() { return api<Consortium[]>('/consortia/') }
+export function saveConsortium(data: Record<string, unknown>, id?: string) { return api<Consortium>(id ? `/consortia/${id}/` : '/consortia/', { method: id ? 'PATCH' : 'POST', body: JSON.stringify(data) }) }
 
 export function listMarkets() { return api<Market[]>('/markets/') }
 export function getMarket(id: string) { return api<Market>(`/markets/${id}/`) }

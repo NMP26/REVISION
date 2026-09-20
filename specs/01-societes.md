@@ -41,3 +41,6 @@ La récupération complète du mot de passe par email reste planifiée tant
 que l'infrastructure email n'est pas disponible. Les droits fins et les
 évolutions d'archivage restent à spécifier ; ils ne sont pas nécessaires
 pour LOT 1A. Voir plans/LOT-01.md.
+## Registre de commerce — données structurées
+
+`Company.rc` et `Company.rc_city` sont deux champs indépendants. `rc_city` représente la ville du registre de commerce et ne doit jamais être déduit de `Company.ville`. La migration laisse `rc_city` vide pour les sociétés existantes ; toute saisie est explicite. L’affichage présente `RC` puis `numéro – ville` si les deux valeurs existent, et conserve le numéro seul sinon.

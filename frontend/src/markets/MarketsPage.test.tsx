@@ -1,18 +1,18 @@
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, Company, Market, getMarket, listCompanies, listMarketLots, listMarkets } from '../lib/api'
+import { ApiError, Company, Market, getMarket, listAuthorities, listCompanies, listConsortia, listMarketLots, listMarkets } from '../lib/api'
 import { MarketDetailPage, MarketsPage } from './MarketsPage'
 
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api')
-  return { ...actual, getMarket: vi.fn(), listCompanies: vi.fn(), listMarketLots: vi.fn(), listMarkets: vi.fn() }
+  return { ...actual, getMarket: vi.fn(), listAuthorities: vi.fn(), listCompanies: vi.fn(), listConsortia: vi.fn(), listMarketLots: vi.fn(), listMarkets: vi.fn() }
 })
 
 const market = (role: Market['current_user_role']): Market => ({ id: 'market-1', company: 'company-1', company_detail: { id: 'company-1', raison_sociale: 'Entreprise A' }, market_number: 'M-001', contracting_authority: 'Commune A', subject: 'Travaux', amount_ht: null, vat_rate: null, date_limite_remise_offres: null, date_ouverture_plis: null, date_signature: null, date_os_commencement: null, contract_duration_value: null, contract_duration_unit: null, formula_structure: 'SINGLE', status: 'ACTIVE', notes: '', created_at: '', updated_at: '', current_user_role: role, lots_count: 0 })
 
 describe('MarketsPage', () => {
-  beforeEach(() => { vi.mocked(listMarkets).mockReset(); vi.mocked(getMarket).mockReset(); vi.mocked(listCompanies).mockReset(); vi.mocked(listMarketLots).mockReset(); vi.mocked(listCompanies).mockResolvedValue([]) })
+  beforeEach(() => { vi.mocked(listMarkets).mockReset(); vi.mocked(getMarket).mockReset(); vi.mocked(listAuthorities).mockReset(); vi.mocked(listCompanies).mockReset(); vi.mocked(listConsortia).mockReset(); vi.mocked(listMarketLots).mockReset(); vi.mocked(listCompanies).mockResolvedValue([]); vi.mocked(listAuthorities).mockResolvedValue([]); vi.mocked(listConsortia).mockResolvedValue([]) })
 
   it('affiche un état vide', async () => {
     vi.mocked(listMarkets).mockResolvedValue([])
@@ -33,6 +33,21 @@ describe('MarketsPage', () => {
     render(<MemoryRouter initialEntries={['/app/markets/market-1']}><Routes><Route path="/app/markets/:id" element={<MarketDetailPage />} /></Routes></MemoryRouter>)
     expect(await screen.findByText('Lot 1 — Lot principal')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Modifier' })).toHaveLength(2)
+  })
+
+  it('affiche les dates métier au format français sans décalage', async () => {
+    vi.mocked(getMarket).mockResolvedValue({
+      ...market('OWNER'),
+      date_limite_remise_offres: '2025-11-19',
+      date_ouverture_plis: '2025-11-19',
+      date_signature: '2025-12-01',
+      date_os_commencement: '2026-04-23',
+    })
+    vi.mocked(listMarketLots).mockResolvedValue([])
+    render(<MemoryRouter initialEntries={['/app/markets/market-1']}><Routes><Route path="/app/markets/:id" element={<MarketDetailPage />} /></Routes></MemoryRouter>)
+    expect(await screen.findAllByText('19/11/2025')).toHaveLength(2)
+    expect(screen.getByText('01/12/2025')).toBeInTheDocument()
+    expect(screen.getByText('23/04/2026')).toBeInTheDocument()
   })
 
   it('MEMBER ne voit pas l’action d’édition', async () => {

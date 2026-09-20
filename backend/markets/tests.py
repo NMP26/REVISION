@@ -6,6 +6,7 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from companies.models import Company, Membership
+from consortia.models import Consortium, ConsortiumMember
 
 from .models import Market, MarketLot
 
@@ -228,6 +229,7 @@ class MarketLotApiTests(TestCase):
     def authenticated(self, user):
         client = APIClient(); client.force_authenticate(user); return client
 
+
     def payload(self, **extra):
         payload = {"lot_number": "1", "title": "Lot principal", "amount_ht": "10.00", "display_order": 0}
         payload.update(extra)
@@ -315,3 +317,86 @@ class MarketLotApiTests(TestCase):
     def test_delete_is_not_exposed(self):
         response = self.authenticated(self.owner).delete(f"/api/markets/{self.market.id}/lots/00000000-0000-0000-0000-000000000000/")
         self.assertEqual(response.status_code, 405)
+
+
+class ConsortiumMarketPermissionTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.naxu_user = user_model.objects.create_user("naxu-owner@example.com", "password-123")
+        self.naxu_admin = user_model.objects.create_user("naxu-admin@example.com", "password-123")
+        self.naxu_member = user_model.objects.create_user("naxu-member@example.com", "password-123")
+        self.ingc_admin = user_model.objects.create_user("ingc-admin@example.com", "password-123")
+        self.no_membership = user_model.objects.create_user("outside@example.com", "password-123")
+        self.naxu = Company.objects.create(raison_sociale="NAXU")
+        self.ingc = Company.objects.create(raison_sociale="INGC")
+        Membership.objects.create(user=self.naxu_user, company=self.naxu, role=Membership.Role.OWNER)
+        Membership.objects.create(user=self.naxu_admin, company=self.naxu, role=Membership.Role.ADMIN)
+        Membership.objects.create(user=self.naxu_member, company=self.naxu, role=Membership.Role.MEMBER)
+        Membership.objects.create(user=self.ingc_admin, company=self.ingc, role=Membership.Role.ADMIN)
+        with transaction.atomic():
+            self.consortium = Consortium.objects.create(owner_company=self.naxu, created_by=self.naxu_user, name="Groupement INGC/NAXU")
+            ConsortiumMember.objects.create(consortium=self.consortium, company=self.ingc, role=ConsortiumMember.Role.MANDATAIRE, share_percent=Decimal("50.00"))
+            ConsortiumMember.objects.create(consortium=self.consortium, company=self.naxu, role=ConsortiumMember.Role.MEMBER, share_percent=Decimal("50.00"))
+        self.market = Market.objects.create(company=self.naxu, holder_type=Market.HolderType.CONSORTIUM, consortium=self.consortium, market_number="10006299/4500004338", contracting_authority="Société Régionale Multiservices Souss-Massa", subject="Travaux", formula_structure=Market.FormulaStructure.SINGLE)
+
+    def api_client(self, user):
+        client = APIClient(); client.force_authenticate(user); return client
+
+    def test_naxu_member_can_read_and_administer_even_if_ingc_is_mandataire(self):
+        response = self.api_client(self.naxu_user).get(f"/api/markets/{self.market.id}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["holder_type"], "CONSORTIUM")
+        self.assertEqual(response.data["consortium_detail"]["name"], "Groupement INGC/NAXU")
+        self.assertEqual(self.api_client(self.naxu_user).patch(f"/api/markets/{self.market.id}/", {"subject": "Administré par NAXU"}, format="json").status_code, 200)
+
+    def test_missing_or_inactive_membership_cannot_read_group_market(self):
+        self.assertEqual(self.api_client(self.no_membership).get(f"/api/markets/{self.market.id}/").status_code, 404)
+        membership = Membership.objects.create(user=self.no_membership, company=self.naxu, role=Membership.Role.ADMIN, active=False)
+        self.assertEqual(self.api_client(self.no_membership).get(f"/api/markets/{self.market.id}/").status_code, 404)
+        membership.active = True; membership.save()
+        self.assertEqual(self.api_client(self.no_membership).get(f"/api/markets/{self.market.id}/").status_code, 200)
+
+    def test_owner_admin_member_and_ingc_permissions_do_not_follow_contractual_role(self):
+        create_payload = {"company": str(self.naxu.id), "holder_type": "CONSORTIUM", "consortium": str(self.consortium.id), "market_number": "GROUP-CREATE-ADMIN", "contracting_authority": "Commune", "subject": "Travaux", "formula_structure": "SINGLE"}
+        self.assertEqual(self.api_client(self.naxu_admin).post("/api/markets/", create_payload, format="json").status_code, 201)
+        self.assertEqual(self.api_client(self.naxu_member).post("/api/markets/", {**create_payload, "market_number": "GROUP-CREATE-MEMBER"}, format="json").status_code, 400)
+        self.assertEqual(self.api_client(self.naxu_admin).get(f"/api/markets/{self.market.id}/").status_code, 200)
+        self.assertEqual(self.api_client(self.naxu_admin).patch(f"/api/markets/{self.market.id}/", {"subject": "Admin NAXU"}, format="json").status_code, 200)
+        self.assertEqual(self.api_client(self.naxu_member).get(f"/api/markets/{self.market.id}/").status_code, 200)
+        self.assertEqual(self.api_client(self.naxu_member).patch(f"/api/markets/{self.market.id}/", {"subject": "Refusé"}, format="json").status_code, 403)
+        self.assertEqual(self.api_client(self.ingc_admin).get(f"/api/markets/{self.market.id}/").status_code, 200)
+        self.assertEqual(self.api_client(self.ingc_admin).patch(f"/api/markets/{self.market.id}/", {"subject": "Admin INGC"}, format="json").status_code, 200)
+        self.assertEqual(self.api_client(self.no_membership).get(f"/api/markets/{self.market.id}/").status_code, 404)
+
+    def test_anonymous_is_refused_and_consortium_management_is_owner_admin_only(self):
+        self.assertEqual(APIClient().get(f"/api/markets/{self.market.id}/").status_code, 401)
+        self.assertEqual(self.api_client(self.naxu_member).get(f"/api/consortia/{self.consortium.id}/").status_code, 200)
+        self.assertEqual(self.api_client(self.naxu_member).patch(f"/api/consortia/{self.consortium.id}/", {"notes": "Refusé"}, format="json").status_code, 403)
+        self.assertEqual(self.api_client(self.naxu_admin).patch(f"/api/consortia/{self.consortium.id}/", {"notes": "Administré"}, format="json").status_code, 200)
+
+    def test_market_creation_rejects_an_unmanaged_consortium_uuid(self):
+        other_user = get_user_model().objects.create_user("other-owner@example.com", "password-123")
+        other_company = Company.objects.create(raison_sociale="Autre société")
+        Membership.objects.create(user=other_user, company=other_company, role=Membership.Role.OWNER)
+        response = self.api_client(other_user).post("/api/markets/", {
+            "company": str(other_company.id), "holder_type": "CONSORTIUM", "consortium": str(self.consortium.id),
+            "market_number": "UNAUTHORIZED-GROUP", "contracting_authority": "Commune", "subject": "Travaux", "formula_structure": "SINGLE",
+        }, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("consortium", response.data["fields"])
+
+    def test_market_update_rejects_substitution_with_unmanaged_consortium(self):
+        other_user = get_user_model().objects.create_user("other-group-owner@example.com", "password-123")
+        other_company = Company.objects.create(raison_sociale="Autre group company")
+        other_member = Company.objects.create(raison_sociale="Autre group member")
+        Membership.objects.create(user=other_user, company=other_company, role=Membership.Role.OWNER)
+        response = self.api_client(other_user).post("/api/consortia/", {
+            "owner_company": str(other_company.id), "name": "Autre groupement", "members": [
+                {"company": str(other_company.id), "role": "MANDATAIRE", "share_percent": "50", "sort_order": 0, "active": True},
+                {"company": str(other_member.id), "role": "MEMBER", "share_percent": "50", "sort_order": 1, "active": True},
+            ],
+        }, format="json")
+        self.assertEqual(response.status_code, 201)
+        update = self.api_client(self.naxu_user).patch(f"/api/markets/{self.market.id}/", {"consortium": response.data["id"], "holder_type": "CONSORTIUM"}, format="json")
+        self.assertEqual(update.status_code, 400)
+        self.assertIn("consortium", update.data["fields"])

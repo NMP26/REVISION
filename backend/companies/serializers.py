@@ -11,7 +11,7 @@ class CompanySerializer(serializers.ModelSerializer):
     class Meta:
         model = Company
         fields = [
-            "id", "raison_sociale", "forme_juridique", "capital_social", "ice", "if_fiscal", "rc", "cnss",
+            "id", "raison_sociale", "forme_juridique", "capital_social", "ice", "if_fiscal", "rc", "rc_city", "cnss",
             "adresse_complete", "ville", "telephone", "email", "site_web", "representant_nom",
             "representant_prenom", "representant_fonction", "logo", "notes", "status", "created_at",
             "updated_at", "archived_at",

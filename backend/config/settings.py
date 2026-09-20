@@ -20,6 +20,8 @@ INSTALLED_APPS = [
     "axes",
     "accounts",
     "companies",
+    "authorities",
+    "consortia",
     "markets",
     "core",
 ]

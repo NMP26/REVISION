@@ -8,6 +8,9 @@ from companies.models import Company
 
 
 class Market(models.Model):
+    class HolderType(models.TextChoices):
+        SOLE_COMPANY = "SOLE_COMPANY", "Société"
+        CONSORTIUM = "CONSORTIUM", "Groupement"
     class FormulaStructure(models.TextChoices):
         SINGLE = "SINGLE", "Formule unique"
         MULTIPLE = "MULTIPLE", "Formules multiples"
@@ -22,6 +25,10 @@ class Market(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="markets")
+    holder_type = models.CharField(max_length=20, choices=HolderType.choices, default=HolderType.SOLE_COMPANY)
+    holder_company = models.ForeignKey(Company, on_delete=models.PROTECT, null=True, blank=True, related_name="held_markets")
+    consortium = models.ForeignKey("consortia.Consortium", on_delete=models.PROTECT, null=True, blank=True, related_name="markets")
+    authority = models.ForeignKey("authorities.ContractingAuthority", on_delete=models.PROTECT, null=True, blank=True, related_name="markets")
     market_number = models.CharField(max_length=120)
     contracting_authority = models.CharField(max_length=255)
     subject = models.TextField()
@@ -63,6 +70,10 @@ class Market(models.Model):
         db_table = "markets_market"
         constraints = [
             models.UniqueConstraint(fields=["company", "market_number"], name="uniq_market_company_number"),
+            models.CheckConstraint(
+                condition=(models.Q(consortium__isnull=True, holder_company__isnull=False, holder_type="SOLE_COMPANY") | models.Q(consortium__isnull=False, holder_company__isnull=True, holder_type="CONSORTIUM")),
+                name="market_holder_exactly_one",
+            ),
             models.CheckConstraint(
                 condition=models.Q(amount_ht__gte=0) | models.Q(amount_ht__isnull=True),
                 name="market_amount_ht_nonnegative",
@@ -114,8 +125,21 @@ class Market(models.Model):
             errors["contract_duration_value"] = "La valeur et l'unité du délai doivent être renseignées ensemble."
         if self.contract_duration_value is not None and self.contract_duration_value <= 0:
             errors["contract_duration_value"] = "La valeur du délai doit être strictement positive."
+        if self.holder_type == self.HolderType.SOLE_COMPANY and self.holder_company_id is None:
+            errors["holder_company"] = "La société titulaire est obligatoire."
+        if self.holder_type == self.HolderType.CONSORTIUM and self.consortium_id is None:
+            errors["consortium"] = "Le groupement titulaire est obligatoire."
+        if self.holder_type == self.HolderType.SOLE_COMPANY and self.consortium_id is not None:
+            errors["consortium"] = "Une société titulaire ne peut pas avoir de groupement."
+        if self.holder_type == self.HolderType.CONSORTIUM and self.holder_company_id is not None:
+            errors["holder_company"] = "Un groupement titulaire ne peut pas avoir de société titulaire directe."
         if errors:
             raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self.holder_type == self.HolderType.SOLE_COMPANY and self.holder_company_id is None:
+            self.holder_company_id = self.company_id
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.market_number

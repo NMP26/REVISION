@@ -267,3 +267,11 @@ Motif: Empêcher la dérive fonctionnelle des agents.
 Impact: LOT 1A, LOT 1B et suivants restent bloqués pendant GOV 1.1.
 Exigences liées: OPS-002
 Statut: ACCEPTED
+## ADR LOT 1C — autorités contractantes et groupements
+
+- Un groupement n’est jamais une Company ; les membres sont des Company réelles.
+- Le rôle MANDATAIRE ne confère aucun droit applicatif implicite.
+- Les quotes-parts sont nullable et contrôlées en Decimal ; total 100,00 % seulement si toutes sont renseignées.
+- Les autorités et groupements utilisés sont désactivés plutôt que supprimés.
+- La migration de `Market.company` est additive et backfillée vers le titulaire individuel, sans perte de lots, memberships ni données existantes.
+- Aucun moteur de snapshot ou modèle LOT 2 n’est implémenté dans cette évolution.

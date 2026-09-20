@@ -7,6 +7,7 @@
 | LOT 1 | Parent historique : identité, sociétés, marchés et structure contractuelle | Découpé en LOT 1A + LOT 1B |
 | LOT 1A | Authentification / Utilisateurs / Sociétés | GELÉ — v0.3.0 |
 | LOT 1B | Marchés / Lots / Structure contractuelle | IMPLEMENTED — TESTED, AUDIT À FAIRE |
+| LOT 1C | Groupements / Autorités / RC City | GELÉ — v0.5.0 |
 | LOT 2A | Formules | BLOQUE |
 | LOT 2B | Bordereau | BLOQUE |
 | LOT 3 | Exécution / Décomptes | BLOQUE |
@@ -27,6 +28,12 @@ LOT 1B — Marchés / Lots / Structure contractuelle est implémenté et testé
 pour Market et MarketLot. La validation finale reste soumise à l'audit,
 conformément à ADR-LOT1B-001.
 
+LOT 1C — Groupements / Autorités / RC City est implémenté, testé et gelé
+en v0.5.0. Le périmètre couvre les titulaires en groupement, les maîtres
+d'ouvrage structurés avec conservation du texte historique, la ville du
+registre de commerce indépendante de la ville de la société, les formats
+d'affichage français et les migrations additives avec preuve pré/post.
+
 ## Découpage officiel du LOT 1
 
 LOT 1 reste le lot parent historique du Blueprint. Il est exécuté en deux
@@ -35,7 +42,8 @@ sous-lots de gouvernance :
 ```text
 LOT 1
  ├── LOT 1A — Authentification / Utilisateurs / Sociétés
- └── LOT 1B — Marchés / Lots / Structure contractuelle
+ ├── LOT 1B — Marchés / Lots / Structure contractuelle
+ └── LOT 1C — Groupements / Autorités / RC City
 ```
 
 Le découpage 1A/1B précise le LOT 1 ; il ne le supprime pas et ne

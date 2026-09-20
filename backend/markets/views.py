@@ -1,4 +1,5 @@
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -18,10 +19,10 @@ def serializer_errors(serializer):
 
 
 def accessible_markets(user):
-    queryset = Market.objects.select_related("company").prefetch_related("lots")
+    queryset = Market.objects.select_related("company", "holder_company", "consortium", "authority").prefetch_related("lots", "consortium__members__company")
     if user.is_superuser:
         return queryset
-    return queryset.filter(company__memberships__user=user, company__memberships__active=True).distinct()
+    return queryset.filter(Q(company__memberships__user=user, company__memberships__active=True) | Q(consortium__members__company__memberships__user=user, consortium__members__company__memberships__active=True, consortium__members__active=True)).distinct()
 
 
 class MarketListCreateView(APIView):

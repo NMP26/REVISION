@@ -28,6 +28,16 @@ class CompanyModelTests(TestCase):
         Company.objects.create(raison_sociale="Autre", ice="same", if_fiscal="same", rc="same", cnss="same")
         Company.objects.create(raison_sociale="Encore", ice="same", if_fiscal="same", rc="same", cnss="same")
 
+    def test_rc_city_is_separate_and_does_not_change_existing_city(self):
+        self.company.rc = "13165"
+        self.company.rc_city = "Inezgane"
+        self.company.ville = "Agadir"
+        self.company.save()
+        self.company.refresh_from_db()
+        self.assertEqual(self.company.rc, "13165")
+        self.assertEqual(self.company.rc_city, "Inezgane")
+        self.assertEqual(self.company.ville, "Agadir")
+
     def test_logo_size_limit(self):
         client = APIClient(); client.force_authenticate(self.user)
         oversized = SimpleUploadedFile("logo.png", b"x" * (5 * 1024 * 1024 + 1), content_type="image/png")

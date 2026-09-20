@@ -5,7 +5,7 @@ type Props = { company?: Company; onSaved: (company: Company) => void }
 type FormState = Record<string, string | File | null>
 const fields = [
   ['raison_sociale', 'Raison sociale', true], ['forme_juridique', 'Forme juridique'], ['capital_social', 'Capital social'],
-  ['ice', 'ICE'], ['if_fiscal', 'IF'], ['rc', 'RC'], ['cnss', 'CNSS'], ['adresse_complete', 'Adresse'],
+  ['ice', 'ICE'], ['if_fiscal', 'IF'], ['rc', 'RC'], ['rc_city', 'Ville du RC'], ['cnss', 'CNSS'], ['adresse_complete', 'Adresse'],
   ['ville', 'Ville'], ['telephone', 'Téléphone'], ['email', 'E-mail'], ['site_web', 'Site web'],
   ['representant_nom', 'Nom du représentant'], ['representant_prenom', 'Prénom du représentant'],
   ['representant_fonction', 'Qualité / fonction'],

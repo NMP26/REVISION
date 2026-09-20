@@ -79,3 +79,6 @@ créées par cette phase.
 La persistance et l'API réutiliseront `Membership` actif du LOT 1A :
 `OWNER`/`ADMIN` pour create/update, `MEMBER` pour read, aucun accès sans
 membership actif, avec l'exception superuser Django existante.
+## Évolution LOT 1C — référentiel et groupements
+
+Les modèles `ContractingAuthority`, `AuthorityAlias`, `CompanyAuthority`, `Consortium` et `ConsortiumMember` sont additifs et désactivables logiquement. `Market.company` reste la société de dossier pendant la migration progressive ; `holder_type` et le couple `holder_company`/`consortium` portent le titulaire avec une contrainte DB exclusive. Les futures révisions devront copier les noms, membres, mandataire et quotes-parts dans un snapshot immuable ; elles ne devront pas dépendre des FK vivantes.

@@ -3,6 +3,10 @@ from decimal import Decimal
 from rest_framework import serializers
 
 from companies.models import Company
+from authorities.models import ContractingAuthority
+from consortia.models import Consortium
+from consortia.permissions import can_manage_consortium
+from companies.permissions import get_membership
 
 from .models import Market, MarketLot
 
@@ -20,21 +24,37 @@ class CompanySummarySerializer(serializers.ModelSerializer):
         fields = ["id", "raison_sociale"]
 
 
+class AuthoritySummarySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ContractingAuthority
+        fields = ["id", "name", "short_name", "active"]
+
+
+class ConsortiumSummarySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Consortium
+        fields = ["id", "name", "owner_company"]
+
+
 class MarketSerializer(serializers.ModelSerializer):
     company = serializers.PrimaryKeyRelatedField(queryset=Company.objects.all())
     company_detail = CompanySummarySerializer(source="company", read_only=True)
+    holder_company = serializers.PrimaryKeyRelatedField(queryset=Company.objects.all(), required=False, allow_null=True)
+    holder_company_detail = CompanySummarySerializer(source="holder_company", read_only=True)
+    consortium_detail = ConsortiumSummarySerializer(source="consortium", read_only=True)
+    authority_detail = AuthoritySummarySerializer(source="authority", read_only=True)
     current_user_role = serializers.SerializerMethodField()
     lots_count = serializers.IntegerField(source="lots.count", read_only=True)
 
     class Meta:
         model = Market
         fields = [
-            "id", "company", "company_detail", "market_number", "contracting_authority", "subject",
+            "id", "company", "company_detail", "holder_type", "holder_company", "holder_company_detail", "consortium", "consortium_detail", "authority", "authority_detail", "market_number", "contracting_authority", "subject",
             "amount_ht", "vat_rate", "date_limite_remise_offres", "date_ouverture_plis", "date_signature",
             "date_os_commencement", "contract_duration_value", "contract_duration_unit", "formula_structure",
             "status", "notes", "created_at", "updated_at", "current_user_role", "lots_count",
         ]
-        read_only_fields = ["id", "company_detail", "created_at", "updated_at", "current_user_role", "lots_count"]
+        read_only_fields = ["id", "company_detail", "holder_company_detail", "consortium_detail", "authority_detail", "created_at", "updated_at", "current_user_role", "lots_count"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -47,8 +67,8 @@ class MarketSerializer(serializers.ModelSerializer):
             return None
         if request.user.is_superuser:
             return "OWNER"
-        membership = market.company.memberships.filter(user=request.user, active=True).first()
-        return membership.role if membership else None
+        from .permissions import market_role
+        return market_role(request.user, market)
 
     def validate_market_number(self, value):
         return validate_non_blank(value, "Le numéro du marché")
@@ -82,6 +102,26 @@ class MarketSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"contract_duration_value": "La valeur du délai doit être strictement positive."})
         if self.instance is None and attrs.get("company") is None:
             raise serializers.ValidationError({"company": "La société est obligatoire."})
+        holder_type = attrs.get("holder_type", getattr(self.instance, "holder_type", Market.HolderType.SOLE_COMPANY))
+        holder_company = attrs.get("holder_company", getattr(self.instance, "holder_company", None))
+        consortium = attrs.get("consortium", getattr(self.instance, "consortium", None))
+        if holder_type == Market.HolderType.SOLE_COMPANY and holder_company is None and self.instance is None:
+            attrs["holder_company"] = attrs.get("company")
+            holder_company = attrs["company"]
+        if holder_type == Market.HolderType.SOLE_COMPANY and (holder_company is None or consortium is not None):
+            raise serializers.ValidationError({"holder_company": "La société titulaire est obligatoire et exclusive."})
+        if holder_type == Market.HolderType.CONSORTIUM and (consortium is None or holder_company is not None):
+            raise serializers.ValidationError({"consortium": "Le groupement titulaire est obligatoire et exclusif."})
+        request = self.context.get("request")
+        if request and not request.user.is_superuser and holder_type == Market.HolderType.SOLE_COMPANY and get_membership(request.user, holder_company) is None:
+            raise serializers.ValidationError({"holder_company": "Cette société n’est pas accessible avec votre Membership active."})
+        if consortium is not None and not consortium.active:
+            raise serializers.ValidationError({"consortium": "Ce groupement est inactif."})
+        consortium_changed = self.instance is None or (consortium is not None and consortium.pk != getattr(self.instance, "consortium_id", None))
+        if request and consortium is not None and consortium_changed and not request.user.is_superuser and not can_manage_consortium(request.user, consortium):
+            raise serializers.ValidationError({"consortium": "Ce groupement n’est pas administrable avec votre Membership active."})
+        if attrs.get("authority") is not None:
+            attrs["contracting_authority"] = attrs["authority"].name
         return attrs
 
 

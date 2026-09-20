@@ -91,6 +91,11 @@ obligatoire.
 ## 5. État et périmètre
 
 Les champs, cardinalités, contraintes et permissions ci-dessus sont
-APPROVED au niveau design. L'implémentation backend, les migrations,
-l'API réelle, le frontend et les tests LOT 1B sont PLANNED et ne sont pas
-créés dans cette phase.
+APPROVED au niveau design. L’évolution LOT 1C ajoute l’autorité structurée
+et le titulaire en groupement ; les moteurs de révision restent hors
+périmètre.
+## Autorité contractante et titulaire en groupement
+
+Le maître d’ouvrage est progressivement référencé par `ContractingAuthority`, avec nom officiel, nom court, statut actif et liens de visibilité par société. Le texte historique de `Market.contracting_authority` est conservé.
+
+Le titulaire est soit une `Company` réelle, soit un `Consortium` composé de `ConsortiumMember`. Le rôle `MANDATAIRE` est contractuel et ne détermine pas les permissions applicatives. Une Membership active suffisante sur une société membre autorise l’accès selon les règles du marché. Les quotes-parts sont des `Decimal` facultatifs ; la somme de 100,00 % est exigée uniquement lorsqu’elles sont toutes renseignées.

@@ -1,5 +1,11 @@
 export type DecimalValue = string | number | bigint
 
+export function formatDate(value: string | null | undefined): string {
+  if (!value) return '—'
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : '—'
+}
+
 function decimalParts(value: DecimalValue): { negative: boolean; integer: string; fraction: string } | null {
   const raw = String(value).trim().replace(',', '.')
   const match = raw.match(/^([+-]?)(\d+)(?:\.(\d+))?$/)

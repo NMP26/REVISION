@@ -17,6 +17,7 @@ class Company(models.Model):
     ice = models.CharField(max_length=64, blank=True)
     if_fiscal = models.CharField(max_length=64, blank=True)
     rc = models.CharField(max_length=64, blank=True)
+    rc_city = models.CharField(max_length=120, blank=True)
     cnss = models.CharField(max_length=64, blank=True)
     adresse_complete = models.TextField(blank=True)
     ville = models.CharField(max_length=120, blank=True)
