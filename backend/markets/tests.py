@@ -1,14 +1,17 @@
 from decimal import Decimal
+from concurrent.futures import ThreadPoolExecutor
 
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError, transaction
-from django.test import TestCase
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, connection, transaction
+from django.db.models.deletion import ProtectedError
+from django.test import TestCase, TransactionTestCase
 from rest_framework.test import APIClient
 
 from companies.models import Company, Membership
 from consortia.models import Consortium, ConsortiumMember
 
-from .models import Market, MarketLot
+from .models import FormulaTerm, Market, MarketFormula, MarketLot, RevisionGroup
 
 
 class MarketApiTests(TestCase):
@@ -317,6 +320,204 @@ class MarketLotApiTests(TestCase):
     def test_delete_is_not_exposed(self):
         response = self.authenticated(self.owner).delete(f"/api/markets/{self.market.id}/lots/00000000-0000-0000-0000-000000000000/")
         self.assertEqual(response.status_code, 405)
+
+
+class RevisionFormulaApiTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.owner = user_model.objects.create_user("formula-owner@example.com", "password-123")
+        self.member = user_model.objects.create_user("formula-member@example.com", "password-123")
+        self.other = user_model.objects.create_user("formula-other@example.com", "password-123")
+        self.company = Company.objects.create(raison_sociale="NAXU")
+        self.other_company = Company.objects.create(raison_sociale="Autre société")
+        Membership.objects.create(user=self.owner, company=self.company, role=Membership.Role.OWNER)
+        Membership.objects.create(user=self.member, company=self.company, role=Membership.Role.MEMBER)
+        Membership.objects.create(user=self.other, company=self.other_company, role=Membership.Role.OWNER)
+        self.market = Market.objects.create(
+            company=self.company, market_number="10006299/4500004338", contracting_authority="Agadir",
+            subject="Travaux électriques", formula_structure=Market.FormulaStructure.SINGLE,
+        )
+        self.group = RevisionGroup.objects.create(market=self.market, code="ELEC", name="Travaux électriques")
+
+    def authenticated(self, user):
+        client = APIClient(); client.force_authenticate(user); return client
+
+    def draft_payload(self, **extra):
+        payload = {
+            "label": "Formule travaux électriques", "expression_display": "K = 0,15 + 0,85 × BAT3/BAT3₀",
+            "constant_term": "0.15", "terms": [{"position": 1, "coefficient": "0.85", "term_type": "INDEX_RATIO", "index_code": "BAT3", "base_value": "337.80000000"}],
+        }
+        payload.update(extra)
+        return payload
+
+    def test_create_group_formula_and_terms_uses_decimal_strings(self):
+        response = self.authenticated(self.owner).post(f"/api/markets/{self.market.id}/revision-groups/{self.group.id}/formulas/", self.draft_payload(), format="json")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["constant_term"], "0.15000000")
+        self.assertEqual(response.data["terms"][0]["coefficient"], "0.85000000")
+        self.assertEqual(response.data["terms"][0]["base_value"], "337.80000000")
+        self.assertEqual(MarketFormula.objects.get().terms.get().coefficient, Decimal("0.85000000"))
+
+    def test_float_financial_input_is_rejected(self):
+        response = self.authenticated(self.owner).post(f"/api/markets/{self.market.id}/revision-groups/{self.group.id}/formulas/", self.draft_payload(constant_term=0.15), format="json")
+        self.assertEqual(response.status_code, 400)
+
+    def test_validated_formula_requires_coherent_sum_and_is_immutable(self):
+        invalid = self.authenticated(self.owner).post(f"/api/markets/{self.market.id}/revision-groups/{self.group.id}/formulas/", self.draft_payload(status="VALIDATED", constant_term="0.20"), format="json")
+        self.assertEqual(invalid.status_code, 400)
+        valid = self.authenticated(self.owner).post(f"/api/markets/{self.market.id}/revision-groups/{self.group.id}/formulas/", self.draft_payload(status="VALIDATED"), format="json")
+        self.assertEqual(valid.status_code, 201)
+        formula_id = valid.data["id"]
+        immutable = self.authenticated(self.owner).patch(f"/api/markets/{self.market.id}/revision-groups/{self.group.id}/formulas/{formula_id}/", {"label": "Réécriture interdite"}, format="json")
+        self.assertEqual(immutable.status_code, 400)
+        inactive = self.authenticated(self.owner).patch(f"/api/markets/{self.market.id}/revision-groups/{self.group.id}/formulas/{formula_id}/", {"status": "INACTIVE"}, format="json")
+        self.assertEqual(inactive.status_code, 200)
+
+    def test_new_version_is_allowed_and_two_validated_versions_overlap_is_rejected(self):
+        first = self.authenticated(self.owner).post(f"/api/markets/{self.market.id}/revision-groups/{self.group.id}/formulas/", self.draft_payload(status="VALIDATED"), format="json")
+        self.assertEqual(first.status_code, 201)
+        second = self.authenticated(self.owner).post(f"/api/markets/{self.market.id}/revision-groups/{self.group.id}/formulas/", self.draft_payload(status="VALIDATED"), format="json")
+        self.assertEqual(second.status_code, 400)
+        created = self.authenticated(self.owner).post(f"/api/markets/{self.market.id}/revision-groups/{self.group.id}/formulas/", self.draft_payload(version_number=2), format="json")
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(created.data["version_number"], 2)
+
+    def test_member_reads_but_cannot_write_and_other_market_isolated(self):
+        self.assertEqual(self.authenticated(self.member).get(f"/api/markets/{self.market.id}/revision-groups/").status_code, 200)
+        denied = self.authenticated(self.member).post(f"/api/markets/{self.market.id}/revision-groups/", {"code": "NO", "name": "Interdit"}, format="json")
+        self.assertEqual(denied.status_code, 403)
+        self.assertEqual(self.authenticated(self.other).get(f"/api/markets/{self.market.id}/revision-groups/").status_code, 404)
+
+    def test_duplicate_term_positions_and_missing_validated_base_are_rejected(self):
+        duplicate = self.draft_payload(status="VALIDATED", terms=[
+            {"position": 1, "coefficient": "0.40", "index_code": "I1", "base_value": "100"},
+            {"position": 1, "coefficient": "0.45", "index_code": "I2", "base_value": "100"},
+        ])
+        self.assertEqual(self.authenticated(self.owner).post(f"/api/markets/{self.market.id}/revision-groups/{self.group.id}/formulas/", duplicate, format="json").status_code, 400)
+        missing = self.draft_payload(status="VALIDATED", terms=[{"position": 1, "coefficient": "0.85", "index_code": "BAT3", "base_value": None}])
+        self.assertEqual(self.authenticated(self.owner).post(f"/api/markets/{self.market.id}/revision-groups/{self.group.id}/formulas/", missing, format="json").status_code, 400)
+
+    def test_validated_formula_and_terms_are_immutable_through_orm(self):
+        response = self.authenticated(self.owner).post(
+            f"/api/markets/{self.market.id}/revision-groups/{self.group.id}/formulas/",
+            self.draft_payload(status="VALIDATED"), format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        formula = MarketFormula.objects.get(pk=response.data["id"])
+        term = formula.terms.get()
+
+        formula.label = "Mutation ORM interdite"
+        with self.assertRaises(ValidationError):
+            formula.save()
+        with self.assertRaises(ValidationError):
+            MarketFormula.objects.filter(pk=formula.pk).update(label="Mutation bulk interdite")
+        formula.label = "Mutation bulk_update interdite"
+        with self.assertRaises(ValidationError):
+            MarketFormula.objects.bulk_update([formula], ["label"])
+        with self.assertRaises(ValidationError):
+            MarketFormula.objects.bulk_create([MarketFormula(
+                revision_group=self.group, version_number=2, label="Création bulk interdite",
+                constant_term=Decimal("1"), status=MarketFormula.Status.VALIDATED, created_by=self.owner,
+            )])
+        term.coefficient = Decimal("0.70")
+        with self.assertRaises(ValidationError):
+            term.save()
+        with self.assertRaises(ValidationError):
+            FormulaTerm.objects.filter(pk=term.pk).update(coefficient=Decimal("0.70"))
+        term.coefficient = Decimal("0.70")
+        with self.assertRaises(ValidationError):
+            FormulaTerm.objects.bulk_update([term], ["coefficient"])
+        with self.assertRaises(ValidationError):
+            FormulaTerm.objects.bulk_create([FormulaTerm(
+                formula=formula, position=2, coefficient=Decimal("0.10"),
+                term_type=FormulaTerm.TermType.INDEX_RATIO, index_code="I2", base_value=Decimal("100"),
+            )])
+        with self.assertRaises(ValidationError):
+            FormulaTerm.objects.create(
+                formula=formula, position=2, coefficient=Decimal("0.10"),
+                term_type=FormulaTerm.TermType.INDEX_RATIO, index_code="I2", base_value=Decimal("100"),
+            )
+        with self.assertRaises(ProtectedError):
+            term.delete()
+        with self.assertRaises(ProtectedError):
+            FormulaTerm.objects.filter(pk=term.pk).delete()
+        with self.assertRaises(ProtectedError):
+            formula.delete()
+        with self.assertRaises(ProtectedError):
+            MarketFormula.objects.filter(pk=formula.pk).delete()
+        with self.assertRaises(ProtectedError):
+            self.market.delete()
+
+    def test_draft_terms_remain_mutable_through_normal_orm_operations(self):
+        draft = MarketFormula.objects.create(
+            revision_group=self.group, version_number=1, label="DRAFT", constant_term=Decimal("0.15"), created_by=self.owner,
+        )
+        term = FormulaTerm.objects.create(
+            formula=draft, position=1, coefficient=Decimal("0.85"), index_code="I1", base_value=Decimal("100"),
+        )
+        term.coefficient = Decimal("0.80")
+        term.save()
+        self.assertEqual(draft.terms.get().coefficient, Decimal("0.80"))
+        term.delete()
+        self.assertFalse(draft.terms.exists())
+
+    def test_domain_invariants_are_enforced_without_serializer(self):
+        draft = MarketFormula.objects.create(
+            revision_group=self.group, version_number=1, label="DRAFT", constant_term=Decimal("0.15"), created_by=self.owner,
+        )
+        with self.assertRaises(ValidationError):
+            FormulaTerm.objects.create(formula=draft, position=1, coefficient=Decimal("0.85"), term_type="UNKNOWN", index_code="I", base_value=Decimal("100"))
+        with self.assertRaises(ValidationError):
+            FormulaTerm.objects.create(formula=draft, position=1, coefficient=Decimal("0.85"), index_code="   ", base_value=Decimal("100"))
+        draft.status = MarketFormula.Status.VALIDATED
+        with self.assertRaises(ValidationError):
+            draft.save()
+
+    def test_version_number_is_read_only_and_date_order_is_validated_on_partial_update(self):
+        created = self.authenticated(self.owner).post(
+            f"/api/markets/{self.market.id}/revision-groups/{self.group.id}/formulas/",
+            self.draft_payload(valid_from="2026-02-01"), format="json",
+        )
+        self.assertEqual(created.status_code, 201)
+        formula_url = f"/api/markets/{self.market.id}/revision-groups/{self.group.id}/formulas/{created.data['id']}/"
+        unchanged = self.authenticated(self.owner).patch(formula_url, {"version_number": 99}, format="json")
+        self.assertEqual(unchanged.status_code, 200)
+        self.assertEqual(unchanged.data["version_number"], 1)
+        invalid_dates = self.authenticated(self.owner).patch(formula_url, {"valid_to": "2026-01-01"}, format="json")
+        self.assertEqual(invalid_dates.status_code, 400)
+
+
+class FormulaVersionConcurrencyTests(TransactionTestCase):
+    reset_sequences = True
+
+    def setUp(self):
+        user_model = get_user_model()
+        self.owner = user_model.objects.create_user("formula-concurrency@example.com", "password-123")
+        self.company = Company.objects.create(raison_sociale="Concurrency Company")
+        Membership.objects.create(user=self.owner, company=self.company, role=Membership.Role.OWNER)
+        self.market = Market.objects.create(
+            company=self.company, market_number="CONCURRENT", contracting_authority="Agadir",
+            subject="Travaux", formula_structure=Market.FormulaStructure.SINGLE,
+        )
+        self.group = RevisionGroup.objects.create(market=self.market, code="G", name="Groupe")
+
+    def create_formula(self):
+        client = APIClient()
+        client.force_authenticate(self.owner)
+        try:
+            return client.post(
+                f"/api/markets/{self.market.id}/revision-groups/{self.group.id}/formulas/",
+                {"label": "Formule concurrente", "constant_term": "0.15", "terms": [{"position": 1, "coefficient": "0.85", "index_code": "BAT3", "base_value": "100"}]},
+                format="json",
+            )
+        finally:
+            connection.close()
+
+    def test_automatic_versions_are_serialized_under_concurrency(self):
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            responses = list(executor.map(lambda _: self.create_formula(), range(2)))
+        self.assertEqual(sorted(response.status_code for response in responses), [201, 201])
+        self.assertEqual(sorted(response.data["version_number"] for response in responses), [1, 2])
 
 
 class ConsortiumMarketPermissionTests(TestCase):

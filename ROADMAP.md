@@ -8,7 +8,7 @@
 | LOT 1A | Authentification / Utilisateurs / Sociétés | GELÉ — v0.3.0 |
 | LOT 1B | Marchés / Lots / Structure contractuelle | IMPLEMENTED — TESTED, AUDIT À FAIRE |
 | LOT 1C | Groupements / Autorités / RC City | GELÉ — v0.5.1 |
-| LOT 2A | Formules | BLOQUE |
+| LOT 2A | Formules contractuelles | IMPLEMENTED — TESTED — FROZEN v0.6.0 |
 | LOT 2B | Bordereau | BLOQUE |
 | LOT 3 | Exécution / Décomptes | BLOQUE |
 | LOT 4 | Moteur de révision | BLOQUE |
@@ -34,6 +34,14 @@ de gestion des groupements, les maîtres
 d'ouvrage structurés avec conservation du texte historique, la ville du
 registre de commerce indépendante de la ville de la société, les formats
 d'affichage français et les migrations additives avec preuve pré/post.
+
+LOT 2A est implémenté, testé et gelé en v0.6.0. Le périmètre couvre les groupes
+contractuels, les formules versionnées et leurs termes, sans implémenter le
+BDP, les indices complets, les décomptes ou le moteur de révision. Le mode
+exact d'arrondi de
+`PV-REG-001` reste en attente ; il ne bloque pas le stockage, le
+versionnage ou l'UI des formules, mais bloque une sortie réglementaire
+définitive qui en dépend.
 
 ## Découpage officiel du LOT 1
 

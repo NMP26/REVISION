@@ -1,18 +1,18 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, Company, Market, getMarket, listAuthorities, listCompanies, listConsortia, listMarketLots, listMarkets } from '../lib/api'
+import { ApiError, Company, Market, getMarket, listAuthorities, listCompanies, listConsortia, listMarketLots, listMarkets, listRevisionGroups, saveMarketFormula, saveRevisionGroup } from '../lib/api'
 import { MarketDetailPage, MarketsPage } from './MarketsPage'
 
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api')
-  return { ...actual, getMarket: vi.fn(), listAuthorities: vi.fn(), listCompanies: vi.fn(), listConsortia: vi.fn(), listMarketLots: vi.fn(), listMarkets: vi.fn() }
+  return { ...actual, getMarket: vi.fn(), listAuthorities: vi.fn(), listCompanies: vi.fn(), listConsortia: vi.fn(), listMarketLots: vi.fn(), listMarkets: vi.fn(), listRevisionGroups: vi.fn(), saveMarketFormula: vi.fn(), saveRevisionGroup: vi.fn() }
 })
 
 const market = (role: Market['current_user_role']): Market => ({ id: 'market-1', company: 'company-1', company_detail: { id: 'company-1', raison_sociale: 'Entreprise A' }, market_number: 'M-001', contracting_authority: 'Commune A', subject: 'Travaux', amount_ht: null, vat_rate: null, date_limite_remise_offres: null, date_ouverture_plis: null, date_signature: null, date_os_commencement: null, contract_duration_value: null, contract_duration_unit: null, formula_structure: 'SINGLE', status: 'ACTIVE', notes: '', created_at: '', updated_at: '', current_user_role: role, lots_count: 0 })
 
 describe('MarketsPage', () => {
-  beforeEach(() => { vi.mocked(listMarkets).mockReset(); vi.mocked(getMarket).mockReset(); vi.mocked(listAuthorities).mockReset(); vi.mocked(listCompanies).mockReset(); vi.mocked(listConsortia).mockReset(); vi.mocked(listMarketLots).mockReset(); vi.mocked(listCompanies).mockResolvedValue([]); vi.mocked(listAuthorities).mockResolvedValue([]); vi.mocked(listConsortia).mockResolvedValue([]) })
+  beforeEach(() => { vi.mocked(listMarkets).mockReset(); vi.mocked(getMarket).mockReset(); vi.mocked(listAuthorities).mockReset(); vi.mocked(listCompanies).mockReset(); vi.mocked(listConsortia).mockReset(); vi.mocked(listMarketLots).mockReset(); vi.mocked(listRevisionGroups).mockReset(); vi.mocked(saveMarketFormula).mockReset(); vi.mocked(saveRevisionGroup).mockReset(); vi.mocked(listCompanies).mockResolvedValue([]); vi.mocked(listAuthorities).mockResolvedValue([]); vi.mocked(listConsortia).mockResolvedValue([]); vi.mocked(listRevisionGroups).mockResolvedValue([]) })
 
   it('affiche un état vide', async () => {
     vi.mocked(listMarkets).mockResolvedValue([])
@@ -33,6 +33,71 @@ describe('MarketsPage', () => {
     render(<MemoryRouter initialEntries={['/app/markets/market-1']}><Routes><Route path="/app/markets/:id" element={<MarketDetailPage />} /></Routes></MemoryRouter>)
     expect(await screen.findByText('Lot 1 — Lot principal')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Modifier' })).toHaveLength(2)
+  })
+
+  it('affiche une formule multi-termes avec son statut et ses décimales', async () => {
+    vi.mocked(getMarket).mockResolvedValue(market('OWNER'))
+    vi.mocked(listMarketLots).mockResolvedValue([])
+    vi.mocked(listRevisionGroups).mockResolvedValue([{
+      id: 'group-1', market: 'market-1', code: 'ELEC', name: 'Travaux électriques', description: '', sort_order: 0, active: true, notes: '', created_at: '', updated_at: '',
+      formulas: [{ id: 'formula-1', revision_group: 'group-1', version_number: 1, label: 'Formule BAT3', expression_display: 'K = 0,15 + 0,85 × BAT3/BAT3₀', constant_term: '0.15000000', status: 'VALIDATED', valid_from: null, valid_to: null, reference_period_year: null, reference_period_month: null, reference_rule_code: '', reference_source: '', created_by: 'user-1', created_at: '', updated_at: '', validated_at: '', terms: [{ id: 'term-1', position: 1, coefficient: '0.85000000', term_type: 'INDEX_RATIO', index_code: 'BAT3', base_period_year: null, base_period_month: null, base_value: '337.80000000', base_source: '', reference_note: '' }] }],
+    }])
+    render(<MemoryRouter initialEntries={['/app/markets/market-1']}><Routes><Route path="/app/markets/:id" element={<MarketDetailPage />} /></Routes></MemoryRouter>)
+    await vi.waitFor(() => expect(screen.getByText('Formules de révision')).toBeInTheDocument())
+    expect(screen.getByText('Travaux électriques')).toBeInTheDocument()
+    expect(screen.getByText('Validée')).toBeInTheDocument()
+    expect(screen.getByText('BAT3 — coefficient 0.85000000 — base 337.80000000')).toBeInTheDocument()
+    expect(screen.getByText('K = 0,15 + 0,85 × BAT3/BAT3₀')).toBeInTheDocument()
+  })
+
+  it('permet d’éditer un DRAFT et de demander sa validation', async () => {
+    vi.mocked(getMarket).mockResolvedValue(market('OWNER')); vi.mocked(listMarketLots).mockResolvedValue([])
+    vi.mocked(listRevisionGroups).mockResolvedValue([{ id: 'group-1', market: 'market-1', code: 'ELEC', name: 'Électricité', description: '', sort_order: 0, active: true, notes: '', created_at: '', updated_at: '', formulas: [{ id: 'formula-1', revision_group: 'group-1', version_number: 1, label: 'Brouillon', expression_display: '', constant_term: '0.15', status: 'DRAFT', valid_from: null, valid_to: null, reference_period_year: null, reference_period_month: null, reference_rule_code: '', reference_source: '', created_by: 'user-1', created_at: '', updated_at: '', validated_at: null, terms: [{ id: 'term-1', position: 1, coefficient: '0.85', term_type: 'INDEX_RATIO', index_code: 'BAT3', base_period_year: null, base_period_month: null, base_value: '100', base_source: '', reference_note: '' }] }] }])
+    vi.mocked(saveMarketFormula).mockResolvedValue({} as never)
+    render(<MemoryRouter initialEntries={['/app/markets/market-1']}><Routes><Route path="/app/markets/:id" element={<MarketDetailPage />} /></Routes></MemoryRouter>)
+    await screen.findAllByText('Brouillon')
+    const editButtons = await screen.findAllByRole('button', { name: 'Modifier' })
+    fireEvent.click(editButtons[editButtons.length - 1])
+    fireEvent.change(screen.getByLabelText('Libellé'), { target: { value: 'Formule corrigée' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Valider' }))
+    await vi.waitFor(() => expect(saveMarketFormula).toHaveBeenCalledWith('market-1', 'group-1', expect.objectContaining({ status: 'VALIDATED' }), 'formula-1'))
+  })
+
+  it('affiche les erreurs backend de mutation de formule', async () => {
+    vi.mocked(getMarket).mockResolvedValue(market('OWNER')); vi.mocked(listMarketLots).mockResolvedValue([])
+    vi.mocked(listRevisionGroups).mockResolvedValue([{ id: 'group-1', market: 'market-1', code: 'ELEC', name: 'Électricité', description: '', sort_order: 0, active: true, notes: '', created_at: '', updated_at: '', formulas: [] }])
+    vi.mocked(saveMarketFormula).mockRejectedValue(new ApiError(400, { code: 'VALIDATION_ERROR', message: 'Formule invalide.' }))
+    render(<MemoryRouter initialEntries={['/app/markets/market-1']}><Routes><Route path="/app/markets/:id" element={<MarketDetailPage />} /></Routes></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Ajouter une formule' }))
+    fireEvent.change(screen.getByLabelText('Libellé'), { target: { value: 'Nouvelle formule' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Formule invalide.')
+  })
+
+  it('verrouille une formule INACTIVE sans action de mutation', async () => {
+    vi.mocked(getMarket).mockResolvedValue(market('OWNER')); vi.mocked(listMarketLots).mockResolvedValue([])
+    vi.mocked(listRevisionGroups).mockResolvedValue([{ id: 'group-1', market: 'market-1', code: 'ELEC', name: 'Électricité', description: '', sort_order: 0, active: true, notes: '', created_at: '', updated_at: '', formulas: [{ id: 'formula-1', revision_group: 'group-1', version_number: 1, label: 'Inactive', expression_display: '', constant_term: '0.15', status: 'INACTIVE', valid_from: null, valid_to: null, reference_period_year: null, reference_period_month: null, reference_rule_code: '', reference_source: '', created_by: 'user-1', created_at: '', updated_at: '', validated_at: null, terms: [] }] }])
+    render(<MemoryRouter initialEntries={['/app/markets/market-1']}><Routes><Route path="/app/markets/:id" element={<MarketDetailPage />} /></Routes></MemoryRouter>)
+    expect(await screen.findAllByText('Inactive')).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: 'Désactiver' })).not.toBeInTheDocument()
+  })
+
+  it('ne propose pas d’écriture de formule au MEMBER', async () => {
+    vi.mocked(getMarket).mockResolvedValue(market('MEMBER')); vi.mocked(listMarketLots).mockResolvedValue([])
+    render(<MemoryRouter initialEntries={['/app/markets/market-1']}><Routes><Route path="/app/markets/:id" element={<MarketDetailPage />} /></Routes></MemoryRouter>)
+    await screen.findByText('Formules de révision')
+    expect(screen.queryByRole('button', { name: 'Ajouter un groupe' })).not.toBeInTheDocument()
+  })
+
+  it('permet à OWNER de créer un groupe de révision', async () => {
+    vi.mocked(getMarket).mockResolvedValue(market('OWNER')); vi.mocked(listMarketLots).mockResolvedValue([])
+    vi.mocked(saveRevisionGroup).mockResolvedValue({ id: 'group-2', market: 'market-1', code: 'GEN', name: 'Général', description: '', sort_order: 0, active: true, notes: '', created_at: '', updated_at: '', formulas: [] })
+    render(<MemoryRouter initialEntries={['/app/markets/market-1']}><Routes><Route path="/app/markets/:id" element={<MarketDetailPage />} /></Routes></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Ajouter un groupe' }))
+    fireEvent.change(screen.getByLabelText('Code'), { target: { value: 'GEN' } })
+    fireEvent.change(screen.getByLabelText('Nom'), { target: { value: 'Général' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Créer le groupe' }))
+    await vi.waitFor(() => expect(saveRevisionGroup).toHaveBeenCalledWith('market-1', { code: 'GEN', name: 'Général', sort_order: 0 }))
   })
 
   it('distingue le titulaire société de la société gestionnaire', async () => {

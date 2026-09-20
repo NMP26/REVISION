@@ -275,3 +275,30 @@ Statut: ACCEPTED
 - Les autorités et groupements utilisés sont désactivés plutôt que supprimés.
 - La migration de `Market.company` est additive et backfillée vers le titulaire individuel, sans perte de lots, memberships ni données existantes.
 - Aucun moteur de snapshot ou modèle LOT 2 n’est implémenté dans cette évolution.
+
+## ADR-LOT2A-001 — Conception validée des formules contractuelles
+
+ADR-ID: ADR-LOT2A-001
+Date: 2026-09-20
+Sujet: Groupes contractuels et formules versionnées
+Contexte: LOT 1C est gelé en production v0.5.2. LOT 2A implémente les
+groupes, formules et termes ; le moteur de calcul définitif reste hors lot.
+Décision validée: modéliser `RevisionGroup → MarketFormula → FormulaTerm`
+avec une relation versionnée 1→N entre groupe et formule. Un groupe
+appartient au marché et reste indépendant de `MarketLot`. Les formules
+validées sont immuables ; une évolution crée une nouvelle version. Les
+statuts sont `DRAFT`, `VALIDATED` et `INACTIVE`; une formule utilisée ou
+référencée n'est jamais supprimée physiquement. Les coefficients,
+constantes, valeurs de base et calculs utilisent Decimal, avec un stockage
+de base `NUMERIC(18,8)` sans troncature prématurée.
+Motif: préserver les marchés multi-formules, plusieurs groupes par lot,
+la séparation BDP/formule et la reproductibilité future des révisions.
+Impact: les modèles, la migration, l'API et l'écran LOT 2A implémentent cette
+décision. Les modèles LOT 2A refusent explicitement les opérations ORM bulk
+qui contourneraient les invariants (`bulk_create`, `bulk_update`, `update`) ;
+les créations et mutations passent par le service métier. Cette garantie est
+applicative/ORM contrôlée et ne couvre pas du SQL direct. `PriceItem` n'est pas créé en
+LOT 2A et sa relation future est `PriceItem N → 1 RevisionGroup`. Le BDP, les indices complets,
+les snapshots et le calcul des montants restent hors LOT 2A.
+Exigences liées: FRM-001..FRM-003, HIS-001..HIS-008, REG-002, REG-007.
+Statut: ACCEPTED — LOT 2A implémenté, testé et gelé en v0.6.0

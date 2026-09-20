@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from rest_framework import status
@@ -11,7 +12,8 @@ from companies.permissions import can_update, get_membership
 
 from .models import Market, MarketLot
 from .permissions import can_update_market
-from .serializers import MarketLotSerializer, MarketSerializer
+from .serializers import MarketFormulaSerializer, MarketLotSerializer, MarketSerializer, RevisionGroupSerializer
+from .models import MarketFormula, RevisionGroup
 
 
 def serializer_errors(serializer):
@@ -148,3 +150,132 @@ class MarketLotDetailView(APIView):
                 return error_response("VALIDATION_ERROR", "Les données sont invalides.", {"lot_number": ["Ce numéro existe déjà pour ce marché."]})
             raise
         return Response(MarketLotSerializer(lot).data)
+
+
+def accessible_market(user, market_id):
+    return accessible_markets(user).filter(id=market_id).first()
+
+
+class RevisionGroupListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, market_id):
+        market = accessible_market(request.user, market_id)
+        if market is None:
+            return error_response("NOT_FOUND", "Marché introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        groups = market.revision_groups.prefetch_related("formulas__terms")
+        return Response(RevisionGroupSerializer(groups, many=True, context={"request": request}).data)
+
+    @transaction.atomic
+    def post(self, request, market_id):
+        market = accessible_market(request.user, market_id)
+        if market is None:
+            return error_response("NOT_FOUND", "Marché introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        if not can_update_market(request.user, market):
+            return error_response("PERMISSION_DENIED", "Action non autorisée.", http_status=status.HTTP_403_FORBIDDEN)
+        serializer = RevisionGroupSerializer(data=request.data, context={"request": request})
+        if not serializer.is_valid():
+            return error_response("VALIDATION_ERROR", "Les données sont invalides.", serializer_errors(serializer))
+        try:
+            group = serializer.save(market=market)
+        except IntegrityError:
+            return error_response("VALIDATION_ERROR", "Les données sont invalides.", {"code": ["Ce code existe déjà pour ce marché."]})
+        return Response(RevisionGroupSerializer(group, context={"request": request}).data, status=status.HTTP_201_CREATED)
+
+
+class RevisionGroupDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_group(self, request, market_id, group_id):
+        market = accessible_market(request.user, market_id)
+        if market is None:
+            return None, None
+        return market, market.revision_groups.filter(id=group_id).prefetch_related("formulas__terms").first()
+
+    def get(self, request, market_id, group_id):
+        market, group = self.get_group(request, market_id, group_id)
+        if market is None or group is None:
+            return error_response("NOT_FOUND", "Groupe de révision introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        return Response(RevisionGroupSerializer(group, context={"request": request}).data)
+
+    def patch(self, request, market_id, group_id):
+        market, group = self.get_group(request, market_id, group_id)
+        if market is None or group is None:
+            return error_response("NOT_FOUND", "Groupe de révision introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        if not can_update_market(request.user, market):
+            return error_response("PERMISSION_DENIED", "Action non autorisée.", http_status=status.HTTP_403_FORBIDDEN)
+        serializer = RevisionGroupSerializer(group, data=request.data, partial=True, context={"request": request})
+        if not serializer.is_valid():
+            return error_response("VALIDATION_ERROR", "Les données sont invalides.", serializer_errors(serializer))
+        try:
+            serializer.save()
+        except IntegrityError:
+            return error_response("VALIDATION_ERROR", "Les données sont invalides.", {"code": ["Ce code existe déjà pour ce marché."]})
+        return Response(RevisionGroupSerializer(group, context={"request": request}).data)
+
+
+class MarketFormulaListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_group(self, request, market_id, group_id):
+        market = accessible_market(request.user, market_id)
+        if market is None:
+            return None, None
+        return market, market.revision_groups.filter(id=group_id).first()
+
+    def get(self, request, market_id, group_id):
+        market, group = self.get_group(request, market_id, group_id)
+        if market is None or group is None:
+            return error_response("NOT_FOUND", "Groupe de révision introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        return Response(MarketFormulaSerializer(group.formulas.prefetch_related("terms"), many=True, context={"request": request}).data)
+
+    @transaction.atomic
+    def post(self, request, market_id, group_id):
+        market, group = self.get_group(request, market_id, group_id)
+        if market is None or group is None:
+            return error_response("NOT_FOUND", "Groupe de révision introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        if not can_update_market(request.user, market):
+            return error_response("PERMISSION_DENIED", "Action non autorisée.", http_status=status.HTTP_403_FORBIDDEN)
+        serializer = MarketFormulaSerializer(data=request.data, context={"request": request, "revision_group": group})
+        if not serializer.is_valid():
+            return error_response("VALIDATION_ERROR", "Les données sont invalides.", serializer_errors(serializer))
+        try:
+            formula = serializer.save()
+        except ValidationError as exc:
+            return error_response("VALIDATION_ERROR", "Les données sont invalides.", {"formula": exc.messages})
+        except IntegrityError:
+            return error_response("VALIDATION_ERROR", "Les données sont invalides.", {"version_number": ["Cette version existe déjà pour ce groupe."]})
+        return Response(MarketFormulaSerializer(formula, context={"request": request}).data, status=status.HTTP_201_CREATED)
+
+
+class MarketFormulaDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_formula(self, request, market_id, group_id, formula_id):
+        market = accessible_market(request.user, market_id)
+        if market is None:
+            return None, None
+        formula = MarketFormula.objects.filter(revision_group__market=market, revision_group_id=group_id, id=formula_id).prefetch_related("terms").first()
+        return market, formula
+
+    def get(self, request, market_id, group_id, formula_id):
+        market, formula = self.get_formula(request, market_id, group_id, formula_id)
+        if market is None or formula is None:
+            return error_response("NOT_FOUND", "Formule introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        return Response(MarketFormulaSerializer(formula, context={"request": request}).data)
+
+    @transaction.atomic
+    def patch(self, request, market_id, group_id, formula_id):
+        market, formula = self.get_formula(request, market_id, group_id, formula_id)
+        if market is None or formula is None:
+            return error_response("NOT_FOUND", "Formule introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        if not can_update_market(request.user, market):
+            return error_response("PERMISSION_DENIED", "Action non autorisée.", http_status=status.HTTP_403_FORBIDDEN)
+        serializer = MarketFormulaSerializer(formula, data=request.data, partial=True, context={"request": request, "revision_group": formula.revision_group})
+        if not serializer.is_valid():
+            return error_response("VALIDATION_ERROR", "Les données sont invalides.", serializer_errors(serializer))
+        try:
+            serializer.save()
+        except ValidationError as exc:
+            return error_response("VALIDATION_ERROR", "Les données sont invalides.", {"formula": exc.messages})
+        return Response(MarketFormulaSerializer(formula, context={"request": request}).data)

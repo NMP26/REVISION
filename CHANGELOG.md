@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.6.0 — LOT 2A Formules contractuelles
+
+- Groupes de révision (`RevisionGroup`) rattachés aux marchés.
+- Formules contractuelles versionnées (`MarketFormula`) et termes génériques (`FormulaTerm`).
+- Support des formules simples et multi-index.
+- Coefficients, constantes et valeurs de base en `Decimal` / `NUMERIC(18,8)`.
+- Cycle `DRAFT` / `VALIDATED` / `INACTIVE`.
+- Immutabilité des versions validées et protections ORM applicatives contrôlées.
+- API imbriquée et interface des formules dans le détail marché.
+- Permissions OWNER/ADMIN/MEMBER, isolation par marché et validations associées.
+- Tests backend/frontend, tests ORM, migrations et build validés.
+- Le moteur réglementaire définitif, le calcul complet, le chargement des barèmes et le LOT 2B restent hors périmètre.
+- `PV-REG-001` reste `PENDING_VALIDATION`.
+
 ## v0.5.2 — Market holder display
 
 - Détail marché : distinction explicite entre titulaire contractuel et société gestionnaire.

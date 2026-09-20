@@ -91,6 +91,23 @@ export type MarketLot = {
   updated_at: string
 }
 
+export type FormulaTerm = {
+  id?: string; position: number; coefficient: string; term_type: 'INDEX_RATIO'; index_code: string;
+  base_period_year: number | null; base_period_month: number | null; base_value: string | null;
+  base_source: string; reference_note: string; created_at?: string; updated_at?: string
+}
+export type MarketFormula = {
+  id: string; revision_group: string; version_number: number; label: string; expression_display: string;
+  constant_term: string | null; status: 'DRAFT' | 'VALIDATED' | 'INACTIVE'; valid_from: string | null;
+  valid_to: string | null; reference_period_year: number | null; reference_period_month: number | null;
+  reference_rule_code: string; reference_source: string; created_by: string; created_at: string;
+  updated_at: string; validated_at: string | null; terms: FormulaTerm[]
+}
+export type RevisionGroup = {
+  id: string; market: string; code: string; name: string; description: string; sort_order: number;
+  active: boolean; notes: string; created_at: string; updated_at: string; formulas: MarketFormula[]
+}
+
 export function login(email: string, password: string) {
   return api<User>('/auth/login/', { method: 'POST', body: JSON.stringify({ email, password }) })
 }
@@ -123,4 +140,11 @@ export function listMarketLots(marketId: string) { return api<MarketLot[]>(`/mar
 export function saveMarketLot(data: Record<string, unknown>, marketId: string, lotId?: string) {
   const payload = Object.fromEntries(Object.entries(data).filter(([, value]) => value !== '' && value !== undefined))
   return api<MarketLot>(lotId ? `/markets/${marketId}/lots/${lotId}/` : `/markets/${marketId}/lots/`, { method: lotId ? 'PATCH' : 'POST', body: JSON.stringify(payload) })
+}
+export function listRevisionGroups(marketId: string) { return api<RevisionGroup[]>(`/markets/${marketId}/revision-groups/`) }
+export function saveRevisionGroup(marketId: string, data: Record<string, unknown>, groupId?: string) {
+  return api<RevisionGroup>(groupId ? `/markets/${marketId}/revision-groups/${groupId}/` : `/markets/${marketId}/revision-groups/`, { method: groupId ? 'PATCH' : 'POST', body: JSON.stringify(data) })
+}
+export function saveMarketFormula(marketId: string, groupId: string, data: Record<string, unknown>, formulaId?: string) {
+  return api<MarketFormula>(formulaId ? `/markets/${marketId}/revision-groups/${groupId}/formulas/${formulaId}/` : `/markets/${marketId}/revision-groups/${groupId}/formulas/`, { method: formulaId ? 'PATCH' : 'POST', body: JSON.stringify(data) })
 }

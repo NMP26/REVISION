@@ -86,9 +86,9 @@ Exigence → ADR → Spec → Code → Migration → Test → Version
 | LOT-002 | Un lot n'est pas assimilé à une formule. | Cahier cumulatif §6 | ADR-LOT1B-001 | specs/02-marches.md | backend/markets/models.py; architecture/DATA_MODEL.md | backend/markets/migrations/0001_initial.py | backend/markets/tests.py::test_nested_url_cannot_access_lot_from_other_market | IMPLEMENTED | v0.3.0+LOT1B |
 | LOT-003 | MarketLot porte ses champs obligatoires, optionnels, montants et timestamps définis. | Décision LOT 1B | ADR-LOT1B-001 | specs/02-marches.md | backend/markets/models.py; backend/markets/serializers.py; frontend/src/markets/MarketLotForm.tsx | backend/markets/migrations/0001_initial.py; backend/markets/migrations/0002_market_invariants.py | backend/markets/tests.py::MarketLotApiTests; backend/markets/tests.py::test_required_lot_text_fields_reject_empty_and_whitespace; backend/markets/tests.py::test_database_constraints_reject_invalid_lot_values; frontend/src/markets/MarketLotForm.test.tsx | TESTED | v0.3.0+LOT1B |
 | LOT-004 | MarketLot est unique par marché et numéro/code, sans FK vers MarketFormula ni lot automatique. | Décision LOT 1B | ADR-LOT1B-001 | specs/02-marches.md | backend/markets/models.py; backend/markets/views.py | backend/markets/migrations/0001_initial.py; backend/markets/migrations/0002_market_invariants.py | backend/markets/tests.py::test_unique_within_market_and_reusable_in_other_market; backend/markets/tests.py::test_nested_url_rejects_lot_from_other_accessible_market_on_read_and_patch; frontend/src/markets/MarketsPage.test.tsx | TESTED | v0.3.0+LOT1B |
-| FRM-001 | Un RevisionGroup pointe vers une MarketFormula. | Cahier cumulatif §3 | ADR-GOV-003 | specs/03-formules.md | — | — | TBD | APPROVED | GOV-1.1 |
-| FRM-002 | Une MarketFormula peut utiliser plusieurs FormulaTerm et indices. | Cahier cumulatif §§3,11 | ADR-GOV-007 | specs/03-formules.md | — | — | TBD | APPROVED | GOV-1.1 |
-| FRM-003 | Le moteur de formule n'a pas de dépendance structurelle à BAT3. | Cahier cumulatif §11 | ADR-GOV-007 | architecture/CALCULATION_ENGINE.md | — | — | TBD | APPROVED | GOV-1.1 |
+| FRM-001 | Un RevisionGroup porte une ou plusieurs MarketFormula. | Cahier cumulatif §3 | ADR-LOT2A-001 | specs/03-formules.md | backend/markets/models.py; backend/markets/views.py | backend/markets/migrations/0004_revisiongroup_marketformula_formulaterm_and_more.py | backend/markets/tests.py::RevisionFormulaApiTests | TESTED | v0.6.0 |
+| FRM-002 | Une MarketFormula peut utiliser plusieurs FormulaTerm et indices. | Cahier cumulatif §§3,11 | ADR-LOT2A-001 | specs/03-formules.md | backend/markets/models.py; backend/markets/serializers.py | backend/markets/migrations/0004_revisiongroup_marketformula_formulaterm_and_more.py | backend/markets/tests.py::RevisionFormulaApiTests::test_create_group_formula_and_terms_uses_decimal_strings | TESTED | v0.6.0 |
+| FRM-003 | Le futur moteur de formule n'a pas de dépendance structurelle à BAT3. | Cahier cumulatif §11 | ADR-LOT2A-001 | architecture/CALCULATION_ENGINE.md | — | — | hors périmètre LOT 2A ; contrôle de symboles | APPROVED | moteur futur |
 | BDP-001 | La présence d'un BDP est activable selon le marché. | Cahier cumulatif §4 | ADR-GOV-005 | specs/04-bordereau-prix.md | — | — | TBD | APPROVED | GOV-1.1 |
 | BDP-002 | PriceSchedule regroupe les PriceItem d'un marché. | Cahier cumulatif §4 | ADR-GOV-005 | specs/04-bordereau-prix.md | — | — | TBD | APPROVED | GOV-1.1 |
 | BDP-003 | PriceItem porte un numéro de prix. | Cahier cumulatif §4 | ADR-GOV-005 | specs/04-bordereau-prix.md | — | — | TBD | APPROVED | GOV-1.1 |
@@ -208,3 +208,35 @@ ajoute l'interface de gestion des groupements sans nouvelle migration DB.
 | Distinguer titulaire contractuel et société gestionnaire | `frontend/src/markets/MarketsPage.tsx` utilise `holder_type`, `consortium_detail` et `holder_company_detail` ; `Market.company` reste affiché comme société gestionnaire | `frontend/src/markets/MarketsPage.test.tsx` — cas `SOLE_COMPANY` et `CONSORTIUM` |
 | Afficher le Consortium titulaire sans le reconstruire depuis `Market.company` | Libellé `Titulaire : Groupement …` basé sur `consortium_detail` | tests frontend de non-confusion titulaire/gestionnaire |
 | Préserver le comportement société seule | Titulaire basé sur `holder_company_detail` avec repli API existant | test frontend `SOLE_COMPANY` |
+
+## Conception LOT 2A — formules contractuelles validée
+
+Statut de conception : `APPROVED` après validation humaine. Cette section
+conserve le référentiel de conception ; l'implémentation est tracée ci-dessous.
+
+| Exigence | Conception validée | Code | Migration | Test prévu | Statut |
+|---|---|---|---|---|---|
+| FRM-004 | Une formule validée est immuable et une modification crée une nouvelle version | — | — | modification après validation, versionnage | APPROVED |
+| FRM-005 | `MarketLot` reste indépendant de `RevisionGroup`; le futur `PriceItem` sera rattaché à un groupe en LOT 2B | — | — | plusieurs groupes dans un lot | APPROVED |
+| FRM-006 | Index de base, provenance et période sont explicitement enregistrés | — | — | absence de base, provenance, aucune déduction | APPROVED |
+| FRM-007 | Coefficients, indices et ratios utilisent Decimal avec stockage NUMERIC(18,8), sans float ni troncature prématurée | — | — | Decimal, précision et absence de float | APPROVED |
+| FRM-008 | Le mode exact d'arrondi reste PENDING_VALIDATION et bloque seulement la sortie réglementaire définitive | — | — | politique centralisée, état bloquant | APPROVED |
+| FRM-009 | Aucun `PriceItem` n'est créé en LOT 2A; la relation future est `PriceItem N → 1 RevisionGroup` | — | — | séparation LOT 2A/LOT 2B | APPROVED |
+
+Les exigences réglementaires d'arrondi, d'index non publié et de date de
+référence restent soumises aux statuts de `regulatory/`.
+
+## Implémentation LOT 2A — formules contractuelles
+
+Statut : `IMPLEMENTED — TESTED — FROZEN v0.6.0`. La migration est additive et
+aucune donnée métier existante n'est créée automatiquement. Le moteur ne
+produit pas encore de coefficient réglementaire définitif.
+
+| Exigence | Implémentation | Migration | Tests | Statut |
+|---|---|---|---|---|
+| FRM-010 | `RevisionGroup` rattaché à `Market`, code unique par marché | `markets/0004...` | `RevisionFormulaApiTests` | IMPLEMENTED / TESTED |
+| FRM-011 | `MarketFormula` versionnée avec DRAFT/VALIDATED/INACTIVE et bulk ORM contrôlé | `markets/0004...`; `backend/markets/models.py`; `backend/markets/serializers.py` | `RevisionFormulaApiTests::test_validated_formula_and_terms_are_immutable_through_orm`; `RevisionFormulaApiTests::test_draft_terms_remain_mutable_through_normal_orm_operations`; `FormulaVersionConcurrencyTests` | IMPLEMENTED / TESTED |
+| FRM-012 | `FormulaTerm` multi-index ordonné, Decimal `NUMERIC(18,8)` et bulk ORM contrôlé | `markets/0004...`; `backend/markets/models.py` | `RevisionFormulaApiTests::test_validated_formula_and_terms_are_immutable_through_orm`; `test_domain_invariants_are_enforced_without_serializer` | IMPLEMENTED / TESTED |
+| FRM-013 | API imbriquée et isolation par Market | `markets/urls.py`, `markets/views.py` | permissions OWNER/ADMIN/MEMBER, isolation | IMPLEMENTED / TESTED |
+| FRM-014 | Section Formules de révision dans le détail marché | `frontend/src/markets/RevisionFormulaSection.tsx` | `frontend/src/markets/MarketsPage.test.tsx`; `npm run test`; `npm run build` | IMPLEMENTED / TESTED |
+| FRM-015 | Aucun `PriceItem`, import BDP ou moteur réglementaire définitif | — | contrôle de périmètre | VALIDATED |

@@ -15,6 +15,13 @@ L'arrêt à la quatrième décimale est VERIFIED par l'article 8, mais le mode
 informatique exact (par exemple ROUND_HALF_UP) n'est pas précisé dans les
 éléments intégrés. Le choix doit rester TBD jusqu'à validation.
 
+Impact LOT 2A : ce point ne bloque pas le stockage/versionnage des formules,
+les validations structurelles ni l'UI de gestion. Il bloque toute sortie
+présentée comme un coefficient réglementaire définitif lorsque cet arrondi
+est nécessaire. La politique doit rester centralisée et explicite ; aucun
+mode (`ROUND_HALF_UP`, `ROUND_HALF_EVEN`, `ROUND_DOWN` ou autre) n'est
+choisi par la présente documentation.
+
 ## PV-REG-002 — Arrêts, reprises et effets détaillés
 
 Les effets détaillés de chaque type d'arrêt/reprise sur les périodes et
