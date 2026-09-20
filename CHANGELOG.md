@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.5.1 — Consortium management UI
+
+- Interface dédiée de gestion des groupements : liste, création, détail et modification.
+- Réutilisation exclusive des Company existantes pour les membres et le mandataire.
+- Gestion dynamique des membres et des quotes-parts avec validation 100,00 % lorsque toutes les valeurs sont renseignées.
+- Navigation applicative `Sociétés | Groupements | Marchés` et routes `/app/consortia`.
+- Formulaire marché : libellé `Société dossier` remplacé par `Société gestionnaire`, sans changement de relation ni de données en base.
+- Aucune nouvelle migration DB ; l'architecture Consortium de v0.5.0 est réutilisée.
+- Tests frontend de navigation, création INGC/NAXU, permissions d'interface et validations dynamiques.
+
 ## v0.5.0 — Consortium, authorities and company RC city
 
 - Support des marchés dont le titulaire est un groupement.

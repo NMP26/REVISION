@@ -34,7 +34,7 @@ describe('MarketForm', () => {
   it('conserve les dates ISO lors de leur envoi à l’API', async () => {
     vi.mocked(saveMarket).mockResolvedValue({} as never)
     render(<MarketForm companies={companies} onSaved={vi.fn()} />)
-    fireEvent.change(screen.getByLabelText('Société'), { target: { value: 'company-1' } })
+    fireEvent.change(screen.getByLabelText('Société gestionnaire'), { target: { value: 'company-1' } })
     fireEvent.change(screen.getByLabelText('Numéro du marché'), { target: { value: 'M-001' } })
     fireEvent.change(screen.getByLabelText("Maître d'ouvrage"), { target: { value: 'Commune A' } })
     fireEvent.change(screen.getByLabelText('Objet'), { target: { value: 'Travaux' } })
@@ -54,7 +54,7 @@ describe('MarketForm', () => {
   it('ajoute et retire dynamiquement des membres du groupement', () => {
     render(<MarketForm companies={[...companies, secondCompany]} onSaved={vi.fn()} />)
     fireEvent.click(screen.getByLabelText('Groupement'))
-    fireEvent.change(screen.getByLabelText('Société dossier'), { target: { value: 'company-1' } })
+    fireEvent.change(screen.getByLabelText('Société gestionnaire'), { target: { value: 'company-1' } })
     fireEvent.click(screen.getByRole('button', { name: 'Créer un groupement' }))
     expect(screen.getAllByPlaceholderText('Quote-part %')).toHaveLength(2)
     fireEvent.click(screen.getByRole('button', { name: 'Ajouter un membre' }))

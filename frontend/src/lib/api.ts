@@ -110,6 +110,7 @@ export function saveCompany(data: Record<string, unknown>, id?: string) {
 export function listAuthorities(query = '') { return api<Authority[]>(`/authorities/${query ? `?q=${encodeURIComponent(query)}` : ''}`) }
 export function saveAuthority(data: Record<string, unknown>) { return api<Authority>('/authorities/', { method: 'POST', body: JSON.stringify(data) }) }
 export function listConsortia() { return api<Consortium[]>('/consortia/') }
+export function getConsortium(id: string) { return api<Consortium>(`/consortia/${id}/`) }
 export function saveConsortium(data: Record<string, unknown>, id?: string) { return api<Consortium>(id ? `/consortia/${id}/` : '/consortia/', { method: id ? 'PATCH' : 'POST', body: JSON.stringify(data) }) }
 
 export function listMarkets() { return api<Market[]>('/markets/') }

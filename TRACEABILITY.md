@@ -178,8 +178,9 @@ correspondant existe. Aucun élément n'est marqué `IMPLEMENTED`, `TESTED`
 ou `VALIDATED` sans preuve.
 ## LOT 1C — autorités, groupements et RC
 
-Statut global : VALIDATED — v0.5.0. Preuve de migration pré/post validée ;
-tests backend/frontend, build et diagnostic d'exploitation passés.
+Statut global : VALIDATED — v0.5.1. Preuve de migration pré/post validée ;
+tests backend/frontend, build et diagnostic d'exploitation passés. v0.5.1
+ajoute l'interface de gestion des groupements sans nouvelle migration DB.
 
 | Exigence | Implémentation | Vérification |
 |---|---|---|
@@ -189,3 +190,13 @@ tests backend/frontend, build et diagnostic d'exploitation passés.
 | Groupement INGC/NAXU | Company réelles, MANDATAIRE/MEMBER, 50/50 Decimal | tests permissions NAXU |
 | Isolation | accès via Membership active d’une société membre | tests absence/inactivation Membership |
 | Historique futur | architecture snapshot prévue, moteur Revision hors périmètre | revue de conception — hors périmètre v0.5.0 |
+
+## Interface Consortium v0.5.1
+
+| Exigence | Implémentation | Vérification |
+|---|---|---|
+| Navigation et routes Groupements | `frontend/src/App.tsx`, `/app/consortia`, `/new`, `/:id`, `/:id/edit` | `frontend/src/App.test.tsx`, `frontend/src/consortia/ConsortiaPage.test.tsx` |
+| Création et modification d'un groupement avec Company existantes | `frontend/src/consortia/ConsortiaPage.tsx`, API Consortium v0.5.0 | tests création INGC/NAXU, détail et modification |
+| Membres, mandataire, retrait dynamique et quotes-parts | formulaire Consortium avec validation décimale sans float | tests frontend et validations backend existantes |
+| Libellé Société gestionnaire | `frontend/src/markets/MarketForm.tsx` | `frontend/src/markets/MarketForm.test.tsx` |
+| Conservation du schéma et des données historiques | aucune migration ajoutée | `makemigrations --check --dry-run`, `migrate --plan`, `make test` |
