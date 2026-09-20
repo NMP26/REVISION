@@ -64,6 +64,21 @@ les termes dans leur ordre, `version_number`, `status`, `valid_from`,
 provenance de la valeur de base. Les états explicites `PENDING_INDEX` ou
 `ROUNDING_POLICY_PENDING` seront utilisés lorsque le calcul n'est pas
 disponible. LOT 2A ne crée ni `PriceItem` ni API d'import BDP.
+
+## API LOT 2A.1 — bibliothèque des modèles implémentée
+
+Les routes suivantes sont implémentées pour la consultation et la copie :
+
+- `GET /api/formula-templates/` : liste filtrable des templates `GLOBAL` visibles ; les `DEPRECATED` restent consultables mais ne sont pas proposés par défaut.
+- `GET /api/formula-templates/{template_id}/` : détail, version, provenance et aperçu des termes.
+- `POST /api/markets/{market_id}/revision-groups/{group_id}/formulas/from-template/` : copie transactionnelle d'un template `VERIFIED` vers une `MarketFormula DRAFT` indépendante.
+
+La copie exige les permissions d'écriture déjà prévues pour le marché et ne
+crée aucun lien fonctionnel de calcul avec le template. Les valeurs Decimal
+sont sérialisées comme chaînes JSON. L'administration des templates et la
+portée `COMPANY` nécessitent une décision de permissions dédiée dans un lot
+ultérieur ; aucune route ne doit exposer une modification d'une version
+`VERIFIED`.
 ## API LOT 1C
 
 - `GET/POST /api/authorities/` : autocomplétion et création explicite d’un maître d’ouvrage, limitée à une société accessible et administrable.

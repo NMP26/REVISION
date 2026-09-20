@@ -171,6 +171,27 @@ groupe/version et formule/position ; l'index composite
 `VALIDATED` applicables. Aucun index supplémentaire n'est ajouté sans
 requête métier correspondante.
 
+## LOT 2A.1 — bibliothèque de modèles implémentée
+
+LOT 2A.1 sépare strictement le modèle partagé de la formule contractuelle.
+`FormulaTemplate` est une version de famille identifiée par
+`family_key + version_number`; `FormulaTemplateTerm` porte ses termes
+ordonnés. La portée `GLOBAL` est implémentée en priorité. Un champ de portée
+et une société propriétaire nullable réservent `COMPANY` sans l'activer.
+
+Une version `VERIFIED` est immuable. Une copie transactionnelle vers un
+`MarketFormula DRAFT` du marché recopie les valeurs et les termes. La
+formule marché ne dépend ensuite plus du template ; seuls
+`source_template_id` et `source_template_version` servent à la traçabilité.
+`DEPRECATED` conserve l'historique et n'est plus proposé par défaut.
+
+Les templates portent une provenance `OFFICIAL`, `CONTRACT_EXAMPLE` ou
+`INTERNAL`, sans confondre `OFFICIAL` et `VERIFIED`. Aucun template officiel
+n'est préchargé sans vérification documentaire.
+
+`IndexDefinition` reste une dépendance architecturale future. LOT 2A.1 ne
+crée ni `IndexValue`, ni valeur mensuelle, ni barème, ni import.
+
 ## Permissions
 
 La persistance et l'API réutiliseront `Membership` actif du LOT 1A :

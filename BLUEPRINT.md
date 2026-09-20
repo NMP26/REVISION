@@ -449,7 +449,10 @@ Les coefficients doivent faire l'objet de contrôles de cohérence.
 
 ### `FormulaTemplate`
 
-La bibliothèque sert uniquement à préremplir.
+La bibliothèque sert uniquement à préremplir. LOT 2A.1 implémente
+prioritairement des modèles `GLOBAL`, partagés par l'application ; la
+portée `COMPANY` est réservée à une évolution ultérieure. Un modèle n'est
+jamais la formule applicable à un marché.
 
 Workflow :
 
@@ -471,6 +474,14 @@ Modification éventuelle
 
 Une modification future de `FormulaTemplate` ne doit jamais modifier les
 marchés existants.
+
+Chaque famille de modèles possède des versions immuables (`family_key`,
+`version_number`). Une copie crée une `MarketFormula DRAFT` et ses
+`FormulaTerm` propres au marché. La provenance de la copie peut être
+conservée pour l'audit, mais aucune dépendance de calcul dynamique ne doit
+être créée. Les statuts de bibliothèque sont `DRAFT`, `VERIFIED` et
+`DEPRECATED`; aucune formule n'est préchargée comme officielle sans source
+vérifiée.
 
 ------------------------------------------------------------------------
 
@@ -770,6 +781,10 @@ domaine
 unite
 active
 ```
+
+`IndexDefinition` est une référence architecturale indépendante des
+valeurs mensuelles. LOT 2A.1 ne l'implémente pas et n'implémente pas
+`IndexValue`, les barèmes ou les imports.
 
 ### `IndexValue`
 

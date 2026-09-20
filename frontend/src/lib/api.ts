@@ -101,7 +101,15 @@ export type MarketFormula = {
   constant_term: string | null; status: 'DRAFT' | 'VALIDATED' | 'INACTIVE'; valid_from: string | null;
   valid_to: string | null; reference_period_year: number | null; reference_period_month: number | null;
   reference_rule_code: string; reference_source: string; created_by: string; created_at: string;
-  updated_at: string; validated_at: string | null; terms: FormulaTerm[]
+  updated_at: string; validated_at: string | null; source_template?: string | null; source_template_version?: number | null; terms: FormulaTerm[]
+}
+export type FormulaTemplate = {
+  id: string; family_key: string; version_number: number; scope: 'GLOBAL' | 'COMPANY'; owner_company: string | null;
+  code: string; designation: string; description: string; domain: string; expression_display: string;
+  constant_term: string | null; status: 'DRAFT' | 'VERIFIED' | 'DEPRECATED'; valid_from: string | null; valid_to: string | null;
+  source_type: 'OFFICIAL' | 'CONTRACT_EXAMPLE' | 'INTERNAL'; source_title: string; source_url: string;
+  source_reference: string; source_date: string | null; verification_status: string; verified_at: string | null;
+  verified_by: string | null; notes: string; created_at: string; updated_at: string; terms: FormulaTerm[]
 }
 export type RevisionGroup = {
   id: string; market: string; code: string; name: string; description: string; sort_order: number;
@@ -147,4 +155,8 @@ export function saveRevisionGroup(marketId: string, data: Record<string, unknown
 }
 export function saveMarketFormula(marketId: string, groupId: string, data: Record<string, unknown>, formulaId?: string) {
   return api<MarketFormula>(formulaId ? `/markets/${marketId}/revision-groups/${groupId}/formulas/${formulaId}/` : `/markets/${marketId}/revision-groups/${groupId}/formulas/`, { method: formulaId ? 'PATCH' : 'POST', body: JSON.stringify(data) })
+}
+export function listFormulaTemplates(query = '') { return api<FormulaTemplate[]>(`/formula-templates/${query ? `?q=${encodeURIComponent(query)}` : ''}`) }
+export function copyFormulaTemplate(marketId: string, groupId: string, templateId: string) {
+  return api<MarketFormula>(`/markets/${marketId}/revision-groups/${groupId}/formulas/from-template/`, { method: 'POST', body: JSON.stringify({ template_id: templateId }) })
 }

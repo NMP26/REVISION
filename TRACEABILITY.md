@@ -240,3 +240,25 @@ produit pas encore de coefficient réglementaire définitif.
 | FRM-013 | API imbriquée et isolation par Market | `markets/urls.py`, `markets/views.py` | permissions OWNER/ADMIN/MEMBER, isolation | IMPLEMENTED / TESTED |
 | FRM-014 | Section Formules de révision dans le détail marché | `frontend/src/markets/RevisionFormulaSection.tsx` | `frontend/src/markets/MarketsPage.test.tsx`; `npm run test`; `npm run build` | IMPLEMENTED / TESTED |
 | FRM-015 | Aucun `PriceItem`, import BDP ou moteur réglementaire définitif | — | contrôle de périmètre | VALIDATED |
+
+## Conception LOT 2A.1 — bibliothèque des modèles de formules
+
+Statut : `IMPLEMENTED — TESTED — FROZEN v0.6.1`. La curation des templates
+GLOBAL et la publication de sources officielles restent hors périmètre.
+
+| Exigence | Décision / preuve attendue | Implémentation | Tests | Statut |
+|---|---|---|---|---|
+| TPL-001 | Séparation stricte template / formule marché | `specs/03A-formula-template-library.md`; `backend/markets/services.py` | `FormulaTemplateTests.test_copy_is_transactional_independent_and_preserves_traceability` | IMPLEMENTED / TESTED |
+| TPL-002 | Famille stable et version unique | `backend/markets/models.py`; migration 0005 | tests modèle et migration | IMPLEMENTED / TESTED |
+| TPL-003 | Cycle DRAFT/VERIFIED/DEPRECATED | `backend/markets/models.py` | tests modèle/API | IMPLEMENTED / TESTED |
+| TPL-004 | Immutabilité d'une version VERIFIED | `DECISIONS.md`, ADR-LOT2A1-002 | `FormulaTemplateTests.test_verified_template_and_terms_are_immutable_through_orm` | IMPLEMENTED / TESTED |
+| TPL-005 | GLOBAL prioritaire, COMPANY réservé ; lecture derrière une Membership active ou superuser | `backend/companies/permissions.py`; `backend/markets/views.py` | `FormulaTemplateTests.test_global_template_read_requires_active_membership_or_superuser` | IMPLEMENTED / TESTED |
+| TPL-006 | Provenance et vérification explicites | `backend/markets/models.py`; API read-only | `FormulaTemplateTests.create_verified_template` | IMPLEMENTED / TESTED |
+| TPL-007 | OFFICIAL n'implique pas VERIFIED | `backend/markets/models.py` | validation modèle et absence de seed | IMPLEMENTED / TESTED |
+| TPL-008 | Termes simples/multi-index en Decimal | `backend/markets/models.py`; migration 0005 | tests Decimal templates/formules | IMPLEMENTED / TESTED |
+| TPL-009 | Copie transactionnelle vers MarketFormula DRAFT | `backend/markets/services.py`; API | `FormulaTemplateTests.test_copy_is_transactional_independent_and_preserves_traceability` | IMPLEMENTED / TESTED |
+| TPL-010 | Copie de structure, ordre, bases et provenance | `backend/markets/services.py` | test de contenu copié | IMPLEMENTED / TESTED |
+| TPL-011 | Indépendance après copie | `backend/markets/services.py` | test d'indépendance | IMPLEMENTED / TESTED |
+| TPL-012 | Aucune déduction métier/BAT3 en dur | aucun seed/moteur ajouté | contrôle de périmètre | IMPLEMENTED / TESTED |
+| TPL-013 | IndexDefinition futur, aucun IndexValue/barème | aucun modèle correspondant | contrôle de périmètre | IMPLEMENTED / TESTED |
+| TPL-014 | Historique conservé et DEPRECATED non par défaut | `backend/markets/models.py`; API | tests de suppression protégée | IMPLEMENTED / TESTED |

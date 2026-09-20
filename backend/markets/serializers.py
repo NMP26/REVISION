@@ -9,7 +9,7 @@ from consortia.models import Consortium
 from consortia.permissions import can_manage_consortium
 from companies.permissions import get_membership
 
-from .models import FormulaTerm, Market, MarketFormula, MarketLot, RevisionGroup
+from .models import FormulaTemplate, FormulaTemplateTerm, FormulaTerm, Market, MarketFormula, MarketLot, RevisionGroup
 
 
 def validate_non_blank(value, label):
@@ -178,6 +178,34 @@ class FormulaTermSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("La position doit être supérieure ou égale à 1.")
         return value
 
+
+class FormulaTemplateTermSerializer(serializers.ModelSerializer):
+    coefficient = StrictDecimalField(max_digits=18, decimal_places=8)
+    base_value = StrictDecimalField(max_digits=18, decimal_places=8, required=False, allow_null=True)
+
+    class Meta:
+        model = FormulaTemplateTerm
+        fields = [
+            "id", "position", "coefficient", "term_type", "index_code", "base_period_year",
+            "base_period_month", "base_value", "base_source", "reference_note", "created_at", "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class FormulaTemplateSerializer(serializers.ModelSerializer):
+    constant_term = StrictDecimalField(max_digits=18, decimal_places=8, required=False, allow_null=True)
+    terms = FormulaTemplateTermSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = FormulaTemplate
+        fields = [
+            "id", "family_key", "version_number", "scope", "owner_company", "code", "designation",
+            "description", "domain", "expression_display", "constant_term", "status", "valid_from", "valid_to",
+            "source_type", "source_title", "source_url", "source_reference", "source_date",
+            "verification_status", "verified_at", "verified_by", "notes", "created_at", "updated_at", "terms",
+        ]
+        read_only_fields = fields
+
     def validate_index_code(self, value):
         value = value.strip()
         if not value:
@@ -208,9 +236,9 @@ class MarketFormulaSerializer(serializers.ModelSerializer):
         fields = [
             "id", "revision_group", "version_number", "label", "expression_display", "constant_term", "status",
             "valid_from", "valid_to", "reference_period_year", "reference_period_month", "reference_rule_code",
-            "reference_source", "created_by", "created_at", "updated_at", "validated_at", "terms",
+            "reference_source", "source_template", "source_template_version", "created_by", "created_at", "updated_at", "validated_at", "terms",
         ]
-        read_only_fields = ["id", "revision_group", "version_number", "created_by", "created_at", "updated_at", "validated_at"]
+        read_only_fields = ["id", "revision_group", "version_number", "source_template", "source_template_version", "created_by", "created_at", "updated_at", "validated_at"]
         extra_kwargs = {"version_number": {"required": False}}
 
     def validate_label(self, value):

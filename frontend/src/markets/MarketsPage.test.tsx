@@ -1,18 +1,20 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, Company, Market, getMarket, listAuthorities, listCompanies, listConsortia, listMarketLots, listMarkets, listRevisionGroups, saveMarketFormula, saveRevisionGroup } from '../lib/api'
+import { ApiError, Company, FormulaTemplate, Market, copyFormulaTemplate, getMarket, listAuthorities, listCompanies, listConsortia, listFormulaTemplates, listMarketLots, listMarkets, listRevisionGroups, saveMarketFormula, saveRevisionGroup } from '../lib/api'
 import { MarketDetailPage, MarketsPage } from './MarketsPage'
 
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api')
-  return { ...actual, getMarket: vi.fn(), listAuthorities: vi.fn(), listCompanies: vi.fn(), listConsortia: vi.fn(), listMarketLots: vi.fn(), listMarkets: vi.fn(), listRevisionGroups: vi.fn(), saveMarketFormula: vi.fn(), saveRevisionGroup: vi.fn() }
+  return { ...actual, copyFormulaTemplate: vi.fn(), getMarket: vi.fn(), listAuthorities: vi.fn(), listCompanies: vi.fn(), listConsortia: vi.fn(), listFormulaTemplates: vi.fn(), listMarketLots: vi.fn(), listMarkets: vi.fn(), listRevisionGroups: vi.fn(), saveMarketFormula: vi.fn(), saveRevisionGroup: vi.fn() }
 })
 
 const market = (role: Market['current_user_role']): Market => ({ id: 'market-1', company: 'company-1', company_detail: { id: 'company-1', raison_sociale: 'Entreprise A' }, market_number: 'M-001', contracting_authority: 'Commune A', subject: 'Travaux', amount_ht: null, vat_rate: null, date_limite_remise_offres: null, date_ouverture_plis: null, date_signature: null, date_os_commencement: null, contract_duration_value: null, contract_duration_unit: null, formula_structure: 'SINGLE', status: 'ACTIVE', notes: '', created_at: '', updated_at: '', current_user_role: role, lots_count: 0 })
 
 describe('MarketsPage', () => {
-  beforeEach(() => { vi.mocked(listMarkets).mockReset(); vi.mocked(getMarket).mockReset(); vi.mocked(listAuthorities).mockReset(); vi.mocked(listCompanies).mockReset(); vi.mocked(listConsortia).mockReset(); vi.mocked(listMarketLots).mockReset(); vi.mocked(listRevisionGroups).mockReset(); vi.mocked(saveMarketFormula).mockReset(); vi.mocked(saveRevisionGroup).mockReset(); vi.mocked(listCompanies).mockResolvedValue([]); vi.mocked(listAuthorities).mockResolvedValue([]); vi.mocked(listConsortia).mockResolvedValue([]); vi.mocked(listRevisionGroups).mockResolvedValue([]) })
+  beforeEach(() => { vi.mocked(listMarkets).mockReset(); vi.mocked(getMarket).mockReset(); vi.mocked(listAuthorities).mockReset(); vi.mocked(listCompanies).mockReset(); vi.mocked(listConsortia).mockReset(); vi.mocked(listFormulaTemplates).mockReset(); vi.mocked(copyFormulaTemplate).mockReset(); vi.mocked(listMarketLots).mockReset(); vi.mocked(listRevisionGroups).mockReset(); vi.mocked(saveMarketFormula).mockReset(); vi.mocked(saveRevisionGroup).mockReset(); vi.mocked(listCompanies).mockResolvedValue([]); vi.mocked(listAuthorities).mockResolvedValue([]); vi.mocked(listConsortia).mockResolvedValue([]); vi.mocked(listRevisionGroups).mockResolvedValue([]) })
+
+  const template = (status: FormulaTemplate['status'] = 'VERIFIED'): FormulaTemplate => ({ id: 'template-1', family_key: 'family-1', version_number: 1, scope: 'GLOBAL', owner_company: null, code: 'EXAMPLE-001', designation: 'Modèle contractuel', description: '', domain: 'Test', expression_display: 'K = C + A × I/I₀', constant_term: '0.15000000', status, valid_from: null, valid_to: null, source_type: 'CONTRACT_EXAMPLE', source_title: 'CPS de test', source_url: '', source_reference: 'FIXTURE-001', source_date: null, verification_status: 'VERIFIED', verified_at: '', verified_by: null, notes: '', created_at: '', updated_at: '', terms: [{ id: 'template-term-1', position: 1, coefficient: '0.85000000', term_type: 'INDEX_RATIO', index_code: 'IDX-TEST', base_period_year: null, base_period_month: null, base_value: '100.00000000', base_source: '', reference_note: '' }] })
 
   it('affiche un état vide', async () => {
     vi.mocked(listMarkets).mockResolvedValue([])
@@ -61,6 +63,29 @@ describe('MarketsPage', () => {
     fireEvent.change(screen.getByLabelText('Libellé'), { target: { value: 'Formule corrigée' } })
     fireEvent.click(screen.getByRole('button', { name: 'Valider' }))
     await vi.waitFor(() => expect(saveMarketFormula).toHaveBeenCalledWith('market-1', 'group-1', expect.objectContaining({ status: 'VALIDATED' }), 'formula-1'))
+  })
+
+  it('affiche un template GLOBAL et le copie vers une formule DRAFT', async () => {
+    vi.mocked(getMarket).mockResolvedValue(market('OWNER')); vi.mocked(listMarketLots).mockResolvedValue([])
+    vi.mocked(listRevisionGroups).mockResolvedValue([{ id: 'group-1', market: 'market-1', code: 'GEN', name: 'Général', description: '', sort_order: 0, active: true, notes: '', created_at: '', updated_at: '', formulas: [] }])
+    vi.mocked(listFormulaTemplates).mockResolvedValue([template()]); vi.mocked(copyFormulaTemplate).mockResolvedValue({} as never)
+    render(<MemoryRouter initialEntries={['/app/markets/market-1']}><Routes><Route path="/app/markets/:id" element={<MarketDetailPage />} /></Routes></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Utiliser un modèle' }))
+    expect(await screen.findByText('Modèle contractuel')).toBeInTheDocument()
+    expect(screen.getByText('Vérifiez que cette formule correspond aux dispositions du CPS de votre marché.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Utiliser ce modèle' }))
+    await vi.waitFor(() => expect(copyFormulaTemplate).toHaveBeenCalledWith('market-1', 'group-1', 'template-1'))
+  })
+
+  it('permet au MEMBER de consulter les templates sans pouvoir les copier', async () => {
+    vi.mocked(getMarket).mockResolvedValue(market('MEMBER')); vi.mocked(listMarketLots).mockResolvedValue([])
+    vi.mocked(listRevisionGroups).mockResolvedValue([{ id: 'group-1', market: 'market-1', code: 'GEN', name: 'Général', description: '', sort_order: 0, active: true, notes: '', created_at: '', updated_at: '', formulas: [] }])
+    vi.mocked(listFormulaTemplates).mockResolvedValue([template()])
+    render(<MemoryRouter initialEntries={['/app/markets/market-1']}><Routes><Route path="/app/markets/:id" element={<MarketDetailPage />} /></Routes></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Consulter les modèles' }))
+    expect(await screen.findByText('Modèle contractuel')).toBeInTheDocument()
+    expect(screen.getByText('Lecture seule')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Utiliser ce modèle' })).not.toBeInTheDocument()
   })
 
   it('affiche les erreurs backend de mutation de formule', async () => {

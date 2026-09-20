@@ -4,11 +4,10 @@ SOURCE: BLUEPRINT §§10–11, ADR-GOV-003, ADR-GOV-005, ADR-GOV-007, ADR-REG-00
 
 # Formules contractuelles — LOT 2A
 
-Cette spécification décrit la conception proposée du lot LOT 2A. Elle ne
-crée aucun modèle Django, aucune migration, aucune API et aucun écran.
-L’implémentation reste interdite tant que la présente conception, le plan
-du lot et les décisions humaines listées en fin de document ne sont pas
-validés.
+Cette spécification conserve le contrat de conception et les garanties du
+lot LOT 2A implémenté en v0.6.0. La bibliothèque de modèles est spécifiée
+séparément dans `specs/03A-formula-template-library.md` et n'est pas
+incluse dans l'implémentation LOT 2A.
 
 ## 1. Principes métier
 

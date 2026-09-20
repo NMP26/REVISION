@@ -1,5 +1,6 @@
 from decimal import Decimal
 from concurrent.futures import ThreadPoolExecutor
+import uuid
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -11,7 +12,7 @@ from rest_framework.test import APIClient
 from companies.models import Company, Membership
 from consortia.models import Consortium, ConsortiumMember
 
-from .models import FormulaTerm, Market, MarketFormula, MarketLot, RevisionGroup
+from .models import FormulaTemplate, FormulaTemplateTerm, FormulaTerm, Market, MarketFormula, MarketLot, RevisionGroup
 
 
 class MarketApiTests(TestCase):
@@ -485,6 +486,177 @@ class RevisionFormulaApiTests(TestCase):
         self.assertEqual(unchanged.data["version_number"], 1)
         invalid_dates = self.authenticated(self.owner).patch(formula_url, {"valid_to": "2026-01-01"}, format="json")
         self.assertEqual(invalid_dates.status_code, 400)
+
+
+class FormulaTemplateTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.owner = user_model.objects.create_user("template-owner@example.com", "password-123")
+        self.member = user_model.objects.create_user("template-member@example.com", "password-123")
+        self.other = user_model.objects.create_user("template-other@example.com", "password-123")
+        self.company = Company.objects.create(raison_sociale="Template Company")
+        self.other_company = Company.objects.create(raison_sociale="Other Template Company")
+        Membership.objects.create(user=self.owner, company=self.company, role=Membership.Role.OWNER)
+        Membership.objects.create(user=self.member, company=self.company, role=Membership.Role.MEMBER)
+        Membership.objects.create(user=self.other, company=self.other_company, role=Membership.Role.OWNER)
+        self.market = Market.objects.create(
+            company=self.company, market_number="TEMPLATE-MARKET", contracting_authority="Commune",
+            subject="Travaux", formula_structure=Market.FormulaStructure.SINGLE,
+        )
+        self.group = RevisionGroup.objects.create(market=self.market, code="GEN", name="Général")
+
+    def authenticated(self, user):
+        client = APIClient(); client.force_authenticate(user); return client
+
+    def create_verified_template(self):
+        template = FormulaTemplate.objects.create(
+            family_key=uuid.uuid4(), version_number=1, scope=FormulaTemplate.Scope.GLOBAL,
+            code="EXAMPLE-001", designation="Exemple contractuel", expression_display="K = C + A × I/I₀",
+            constant_term=Decimal("0.15"), source_type=FormulaTemplate.SourceType.CONTRACT_EXAMPLE,
+            source_title="CPS de test", source_reference="FIXTURE-001", status=FormulaTemplate.Status.DRAFT,
+        )
+        FormulaTemplateTerm.objects.create(
+            template=template, position=1, coefficient=Decimal("0.85"), index_code="IDX-TEST", base_value=Decimal("100.00000000"),
+        )
+        template.status = FormulaTemplate.Status.VERIFIED
+        template.verification_status = "TEST_VERIFIED"
+        template.save()
+        return template
+
+    def test_global_templates_are_readable_but_not_writable_by_business_api(self):
+        template = self.create_verified_template()
+        listed = self.authenticated(self.member).get("/api/formula-templates/")
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.data[0]["id"], str(template.id))
+        self.assertEqual(listed.data[0]["terms"][0]["coefficient"], "0.85000000")
+        self.assertEqual(self.authenticated(self.other).get(f"/api/formula-templates/{template.id}/").status_code, 200)
+        self.assertEqual(self.authenticated(self.member).post("/api/formula-templates/", {}, format="json").status_code, 405)
+
+    def test_global_template_read_requires_active_membership_or_superuser(self):
+        template = self.create_verified_template()
+        user_model = get_user_model()
+        admin = user_model.objects.create_user("template-admin@example.com", "password-123")
+        Membership.objects.create(user=admin, company=self.company, role=Membership.Role.ADMIN)
+        no_membership = user_model.objects.create_user("template-no-membership@example.com", "password-123")
+        inactive = user_model.objects.create_user("template-inactive@example.com", "password-123")
+        Membership.objects.create(user=inactive, company=self.company, role=Membership.Role.MEMBER, active=False)
+        superuser = user_model.objects.create_superuser("template-superuser@example.com", "password-123")
+
+        for user in (no_membership, inactive):
+            self.assertEqual(self.authenticated(user).get("/api/formula-templates/").status_code, 403)
+            self.assertEqual(self.authenticated(user).get(f"/api/formula-templates/{template.id}/").status_code, 403)
+        for user in (self.owner, admin, self.member, self.other, superuser):
+            self.assertEqual(self.authenticated(user).get("/api/formula-templates/").status_code, 200)
+            self.assertEqual(self.authenticated(user).get(f"/api/formula-templates/{template.id}/").status_code, 200)
+        self.assertEqual(APIClient().get("/api/formula-templates/").status_code, 401)
+        self.assertEqual(APIClient().get(f"/api/formula-templates/{template.id}/").status_code, 401)
+
+    def test_copy_is_transactional_independent_and_preserves_traceability(self):
+        template = self.create_verified_template()
+        response = self.authenticated(self.owner).post(
+            f"/api/markets/{self.market.id}/revision-groups/{self.group.id}/formulas/from-template/",
+            {"template_id": str(template.id)}, format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["status"], "DRAFT")
+        self.assertEqual(str(response.data["source_template"]), str(template.id))
+        self.assertEqual(response.data["source_template_version"], 1)
+        self.assertEqual(response.data["terms"][0]["coefficient"], "0.85000000")
+        formula = MarketFormula.objects.get(pk=response.data["id"])
+        self.assertEqual(formula.source_template_id, template.id)
+        formula.label = "Formule de marché indépendante"
+        formula.save()
+        self.assertEqual(FormulaTemplate.objects.get(pk=template.id).designation, "Exemple contractuel")
+
+    def test_member_cannot_copy_template_to_market(self):
+        template = self.create_verified_template()
+        response = self.authenticated(self.member).post(
+            f"/api/markets/{self.market.id}/revision-groups/{self.group.id}/formulas/from-template/",
+            {"template_id": str(template.id)}, format="json",
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.authenticated(self.other).post(
+            f"/api/markets/{self.market.id}/revision-groups/{self.group.id}/formulas/from-template/",
+            {"template_id": str(template.id)}, format="json",
+        ).status_code, 404)
+
+    def test_copy_failure_rolls_back_formula_and_terms(self):
+        template = FormulaTemplate.objects.create(
+            family_key=uuid.uuid4(), version_number=1, scope=FormulaTemplate.Scope.GLOBAL,
+            code="BROKEN-001", designation="Template invalide", constant_term=Decimal("0.15"),
+            source_type=FormulaTemplate.SourceType.CONTRACT_EXAMPLE, source_title="Fixture", source_reference="BROKEN",
+        )
+        FormulaTemplateTerm.objects.bulk_create([FormulaTemplateTerm(
+            template=template, position=1, coefficient=Decimal("0.85"), index_code=" ", base_value=Decimal("100"),
+        )])
+        template.status = FormulaTemplate.Status.VERIFIED
+        template.save()
+        response = self.authenticated(self.owner).post(
+            f"/api/markets/{self.market.id}/revision-groups/{self.group.id}/formulas/from-template/",
+            {"template_id": str(template.id)}, format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(MarketFormula.objects.filter(source_template=template).exists())
+
+    def test_deprecated_template_is_traceable_but_not_copyable(self):
+        template = self.create_verified_template()
+        template.status = FormulaTemplate.Status.DEPRECATED
+        template.save()
+        listed = self.authenticated(self.member).get(f"/api/formula-templates/{template.id}/")
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.data["status"], "DEPRECATED")
+        response = self.authenticated(self.owner).post(
+            f"/api/markets/{self.market.id}/revision-groups/{self.group.id}/formulas/from-template/",
+            {"template_id": str(template.id)}, format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_verified_template_and_terms_are_immutable_through_orm(self):
+        template = self.create_verified_template()
+        term = template.terms.get()
+        template.designation = "Mutation interdite"
+        with self.assertRaises(ValidationError):
+            template.save()
+        with self.assertRaises(ValidationError):
+            FormulaTemplate.objects.filter(pk=template.pk).update(designation="Bulk interdite")
+        template.designation = "Bulk update interdite"
+        with self.assertRaises(ValidationError):
+            FormulaTemplate.objects.bulk_update([template], ["designation"])
+        with self.assertRaises(ValidationError):
+            FormulaTemplate.objects.bulk_create([FormulaTemplate(
+                family_key=uuid.uuid4(), version_number=1, code="BULK", designation="Bulk", source_type=FormulaTemplate.SourceType.INTERNAL, status=FormulaTemplate.Status.VERIFIED,
+            )])
+        term.coefficient = Decimal("0.70")
+        with self.assertRaises(ValidationError):
+            term.save()
+        with self.assertRaises(ValidationError):
+            FormulaTemplateTerm.objects.filter(pk=term.pk).update(coefficient=Decimal("0.70"))
+        with self.assertRaises(ValidationError):
+            FormulaTemplateTerm.objects.bulk_update([term], ["coefficient"])
+        with self.assertRaises(ValidationError):
+            FormulaTemplateTerm.objects.bulk_create([FormulaTemplateTerm(
+                template=template, position=2, coefficient=Decimal("0.15"), index_code="IDX-2", base_value=Decimal("100"),
+            )])
+        with self.assertRaises(ProtectedError):
+            term.delete()
+        with self.assertRaises(ProtectedError):
+            FormulaTemplateTerm.objects.filter(pk=term.pk).delete()
+        with self.assertRaises(ProtectedError):
+            template.delete()
+        with self.assertRaises(ProtectedError):
+            FormulaTemplate.objects.filter(pk=template.pk).delete()
+
+    def test_draft_template_terms_remain_creatable_and_mutable(self):
+        template = FormulaTemplate.objects.create(
+            family_key=uuid.uuid4(), version_number=1, code="DRAFT-001", designation="Brouillon",
+            source_type=FormulaTemplate.SourceType.INTERNAL,
+        )
+        term = FormulaTemplateTerm.objects.create(template=template, position=1, coefficient=Decimal("0.85"), index_code="IDX", base_value=Decimal("100"))
+        term.coefficient = Decimal("0.80")
+        term.save()
+        self.assertEqual(template.terms.get().coefficient, Decimal("0.80"))
+        term.delete()
+        self.assertFalse(template.terms.exists())
 
 
 class FormulaVersionConcurrencyTests(TransactionTestCase):

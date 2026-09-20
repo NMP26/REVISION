@@ -4,6 +4,7 @@ from .views import (
     MarketDetailView, MarketFormulaDetailView, MarketFormulaListCreateView,
     MarketListCreateView, MarketLotDetailView, MarketLotListCreateView,
     RevisionGroupDetailView, RevisionGroupListCreateView,
+    FormulaTemplateDetailView, FormulaTemplateListView, MarketFormulaFromTemplateView,
 )
 
 urlpatterns = [
@@ -14,5 +15,8 @@ urlpatterns = [
     path("markets/<uuid:market_id>/revision-groups/", RevisionGroupListCreateView.as_view(), name="revision-group-list-create"),
     path("markets/<uuid:market_id>/revision-groups/<uuid:group_id>/", RevisionGroupDetailView.as_view(), name="revision-group-detail"),
     path("markets/<uuid:market_id>/revision-groups/<uuid:group_id>/formulas/", MarketFormulaListCreateView.as_view(), name="market-formula-list-create"),
+    path("markets/<uuid:market_id>/revision-groups/<uuid:group_id>/formulas/from-template/", MarketFormulaFromTemplateView.as_view(), name="market-formula-from-template"),
     path("markets/<uuid:market_id>/revision-groups/<uuid:group_id>/formulas/<uuid:formula_id>/", MarketFormulaDetailView.as_view(), name="market-formula-detail"),
+    path("formula-templates/", FormulaTemplateListView.as_view(), name="formula-template-list"),
+    path("formula-templates/<uuid:template_id>/", FormulaTemplateDetailView.as_view(), name="formula-template-detail"),
 ]

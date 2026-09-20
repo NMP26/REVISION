@@ -39,6 +39,57 @@ class FormulaTermQuerySet(models.QuerySet):
         return super().delete()
 
 
+class FormulaTemplateQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Les templates doivent être modifiés par leur service de curation.")
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError("Les templates ne peuvent pas être modifiés en bulk.")
+
+    def bulk_create(self, objs, batch_size=None, ignore_conflicts=False, update_conflicts=False, update_fields=None, unique_fields=None):
+        if any(obj.status == FormulaTemplate.Status.VERIFIED for obj in objs):
+            raise ValidationError("Une version VERIFIED doit être publiée par le service de curation.")
+        return super().bulk_create(
+            objs,
+            batch_size=batch_size,
+            ignore_conflicts=ignore_conflicts,
+            update_conflicts=update_conflicts,
+            update_fields=update_fields,
+            unique_fields=unique_fields,
+        )
+
+    def delete(self):
+        if self.filter(status=FormulaTemplate.Status.VERIFIED).exists() or self.filter(market_copies__isnull=False).exists():
+            raise ProtectedError("Un template vérifié ou utilisé ne peut pas être supprimé.", self)
+        return super().delete()
+
+
+class FormulaTemplateTermQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Les termes de templates doivent être modifiés par le service de curation.")
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError("Les termes de templates ne peuvent pas être modifiés en bulk.")
+
+    def bulk_create(self, objs, batch_size=None, ignore_conflicts=False, update_conflicts=False, update_fields=None, unique_fields=None):
+        template_ids = {obj.template_id for obj in objs if obj.template_id}
+        if FormulaTemplate.objects.filter(id__in=template_ids, status=FormulaTemplate.Status.VERIFIED).exists():
+            raise ValidationError("Les termes d'un template VERIFIED sont immuables.")
+        return super().bulk_create(
+            objs,
+            batch_size=batch_size,
+            ignore_conflicts=ignore_conflicts,
+            update_conflicts=update_conflicts,
+            update_fields=update_fields,
+            unique_fields=unique_fields,
+        )
+
+    def delete(self):
+        if self.filter(template__status=FormulaTemplate.Status.VERIFIED).exists():
+            raise ProtectedError("Les termes d'un template VERIFIED sont immuables.", self)
+        return super().delete()
+
+
 class Market(models.Model):
     class HolderType(models.TextChoices):
         SOLE_COMPANY = "SOLE_COMPANY", "Société"
@@ -265,6 +316,179 @@ class RevisionGroup(models.Model):
         return f"{self.market.market_number} — {self.name}"
 
 
+class FormulaTemplate(models.Model):
+    class Scope(models.TextChoices):
+        GLOBAL = "GLOBAL", "Global"
+        COMPANY = "COMPANY", "Société"
+
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT", "Brouillon"
+        VERIFIED = "VERIFIED", "Vérifié"
+        DEPRECATED = "DEPRECATED", "Déprécié"
+
+    class SourceType(models.TextChoices):
+        OFFICIAL = "OFFICIAL", "Officielle"
+        CONTRACT_EXAMPLE = "CONTRACT_EXAMPLE", "Exemple contractuel"
+        INTERNAL = "INTERNAL", "Interne"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    family_key = models.UUIDField(default=uuid.uuid4)
+    version_number = models.PositiveIntegerField()
+    scope = models.CharField(max_length=20, choices=Scope.choices, default=Scope.GLOBAL)
+    owner_company = models.ForeignKey(Company, on_delete=models.PROTECT, null=True, blank=True, related_name="formula_templates")
+    code = models.CharField(max_length=120)
+    designation = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    domain = models.CharField(max_length=120, blank=True)
+    expression_display = models.CharField(max_length=500, blank=True)
+    constant_term = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
+    valid_from = models.DateField(null=True, blank=True)
+    valid_to = models.DateField(null=True, blank=True)
+    source_type = models.CharField(max_length=30, choices=SourceType.choices)
+    source_title = models.CharField(max_length=255, blank=True)
+    source_url = models.URLField(max_length=500, blank=True)
+    source_reference = models.CharField(max_length=255, blank=True)
+    source_date = models.DateField(null=True, blank=True)
+    verification_status = models.CharField(max_length=80, blank=True)
+    verified_at = models.DateTimeField(null=True, blank=True)
+    verified_by = models.ForeignKey("accounts.User", on_delete=models.PROTECT, null=True, blank=True, related_name="verified_formula_templates")
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    objects = FormulaTemplateQuerySet.as_manager()
+
+    class Meta:
+        db_table = "markets_formulatemplate"
+        ordering = ["code", "version_number"]
+        constraints = [
+            models.UniqueConstraint(fields=["family_key", "version_number"], name="uniq_formulatemplate_family_version"),
+            models.CheckConstraint(condition=models.Q(version_number__gt=0), name="formulatemplate_version_positive"),
+            models.CheckConstraint(condition=models.Q(scope="GLOBAL", owner_company__isnull=True) | models.Q(scope="COMPANY", owner_company__isnull=False), name="formulatemplate_scope_owner_consistent"),
+            models.CheckConstraint(condition=models.Q(valid_to__isnull=True) | models.Q(valid_from__isnull=True) | models.Q(valid_to__gte=models.F("valid_from")), name="formulatemplate_valid_dates_order"),
+        ]
+        indexes = [
+            models.Index(fields=["scope", "status", "code"], name="template_scope_status_code_idx"),
+            models.Index(fields=["family_key", "version_number"], name="template_family_version_idx"),
+        ]
+
+    def clean(self):
+        errors = {}
+        self.code = self.code.strip()
+        self.designation = self.designation.strip()
+        if not self.code:
+            errors["code"] = "Le code du template est obligatoire."
+        if not self.designation:
+            errors["designation"] = "La désignation du template est obligatoire."
+        if self.scope == self.Scope.GLOBAL and self.owner_company_id is not None:
+            errors["owner_company"] = "Un template GLOBAL ne peut pas avoir de société propriétaire."
+        if self.scope == self.Scope.COMPANY and self.owner_company_id is None:
+            errors["owner_company"] = "Un template COMPANY doit avoir une société propriétaire."
+        if self.status == self.Status.VERIFIED and (not self.source_title.strip() or not self.source_reference.strip()):
+            errors["status"] = "Un template VERIFIED doit avoir une source et une référence documentaire."
+        if self.valid_from and self.valid_to and self.valid_to < self.valid_from:
+            errors["valid_to"] = "La fin de validité doit être postérieure ou égale au début."
+        if self.constant_term is not None and not isinstance(self.constant_term, Decimal):
+            errors["constant_term"] = "La constante doit être une valeur Decimal."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self.constant_term is not None and not isinstance(self.constant_term, Decimal):
+            raise ValidationError("La constante doit être une valeur Decimal.")
+        if self.status == self.Status.VERIFIED and self.verified_at is None:
+            from django.utils import timezone
+            self.verified_at = timezone.now()
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            previous = type(self).objects.only("family_key", "version_number", "scope", "owner_company_id", "status").get(pk=self.pk)
+            if previous.family_key != self.family_key or previous.version_number != self.version_number:
+                raise ValidationError("L'identité et la version d'un template sont immuables.")
+            if previous.status == self.Status.VERIFIED:
+                changed_fields = {
+                    field.name for field in self._meta.concrete_fields
+                    if field.name not in {"updated_at", "status", "verified_at", "verified_by"}
+                    and getattr(previous, field.name) != getattr(self, field.name)
+                }
+                if changed_fields or self.status not in {self.Status.VERIFIED, self.Status.DEPRECATED}:
+                    raise ValidationError("Une version VERIFIED est immuable.")
+            if previous.status == self.Status.DEPRECATED and self.status != self.Status.DEPRECATED:
+                raise ValidationError("Un template DEPRECATED ne peut pas être réactivé.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.status == self.Status.VERIFIED or self.market_copies.exists():
+            raise ProtectedError("Un template vérifié ou utilisé ne peut pas être supprimé.", self)
+        return super().delete(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.designation} v{self.version_number}"
+
+
+class FormulaTemplateTerm(models.Model):
+    class TermType(models.TextChoices):
+        INDEX_RATIO = "INDEX_RATIO", "Ratio d’index"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    template = models.ForeignKey(FormulaTemplate, on_delete=models.PROTECT, related_name="terms")
+    position = models.PositiveIntegerField()
+    coefficient = models.DecimalField(max_digits=18, decimal_places=8)
+    term_type = models.CharField(max_length=40, choices=TermType.choices, default=TermType.INDEX_RATIO)
+    index_code = models.CharField(max_length=120)
+    base_period_year = models.PositiveSmallIntegerField(null=True, blank=True)
+    base_period_month = models.PositiveSmallIntegerField(null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(12)])
+    base_value = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True)
+    base_source = models.TextField(blank=True)
+    reference_note = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    objects = FormulaTemplateTermQuerySet.as_manager()
+
+    class Meta:
+        db_table = "markets_formulatemplateterm"
+        ordering = ["position"]
+        constraints = [
+            models.UniqueConstraint(fields=["template", "position"], name="uniq_template_term_position"),
+            models.CheckConstraint(condition=models.Q(position__gt=0), name="template_term_position_positive"),
+            models.CheckConstraint(condition=models.Q(base_value__isnull=True) | models.Q(base_value__gt=0), name="template_term_base_positive"),
+        ]
+
+    def clean(self):
+        errors = {}
+        self.index_code = self.index_code.strip()
+        if not self.index_code:
+            errors["index_code"] = "Le code de l’index est obligatoire."
+        if self.term_type not in self.TermType.values:
+            errors["term_type"] = "Le type de terme est invalide."
+        if not isinstance(self.coefficient, Decimal):
+            errors["coefficient"] = "Le coefficient doit être une valeur Decimal."
+        if self.base_value is not None and not isinstance(self.base_value, Decimal):
+            errors["base_value"] = "La valeur de base doit être une valeur Decimal."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if not isinstance(self.coefficient, Decimal) or (self.base_value is not None and not isinstance(self.base_value, Decimal)):
+            raise ValidationError("Les valeurs numériques du terme doivent être des Decimal.")
+        template_status = FormulaTemplate.objects.filter(pk=self.template_id).values_list("status", flat=True).first() if self.template_id else None
+        if template_status == FormulaTemplate.Status.VERIFIED:
+            raise ValidationError("Les termes d'un template VERIFIED sont immuables.")
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            previous_template_id = type(self).objects.only("template_id").get(pk=self.pk).template_id
+            if previous_template_id != self.template_id:
+                raise ValidationError("Le template d'un terme est immuable.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if FormulaTemplate.objects.filter(pk=self.template_id, status=FormulaTemplate.Status.VERIFIED).exists():
+            raise ProtectedError("Les termes d'un template VERIFIED sont immuables.", self)
+        return super().delete(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.template} — {self.index_code}"
+
+
 class MarketFormula(models.Model):
     class Status(models.TextChoices):
         DRAFT = "DRAFT", "Brouillon"
@@ -273,6 +497,8 @@ class MarketFormula(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     revision_group = models.ForeignKey(RevisionGroup, on_delete=models.PROTECT, related_name="formulas")
+    source_template = models.ForeignKey("FormulaTemplate", on_delete=models.PROTECT, null=True, blank=True, related_name="market_copies")
+    source_template_version = models.PositiveIntegerField(null=True, blank=True)
     version_number = models.PositiveIntegerField()
     label = models.CharField(max_length=255)
     expression_display = models.CharField(max_length=500, blank=True)
@@ -296,6 +522,7 @@ class MarketFormula(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["revision_group", "version_number"], name="uniq_marketformula_group_version"),
             models.CheckConstraint(condition=models.Q(version_number__gt=0), name="marketformula_version_positive"),
+            models.CheckConstraint(condition=models.Q(source_template__isnull=True, source_template_version__isnull=True) | models.Q(source_template__isnull=False, source_template_version__isnull=False), name="marketformula_source_template_pair"),
             models.CheckConstraint(condition=models.Q(valid_to__isnull=True) | models.Q(valid_from__isnull=True) | models.Q(valid_to__gte=models.F("valid_from")), name="marketformula_valid_dates_order"),
         ]
         indexes = [

@@ -302,3 +302,57 @@ LOT 2A et sa relation future est `PriceItem N → 1 RevisionGroup`. Le BDP, les 
 les snapshots et le calcul des montants restent hors LOT 2A.
 Exigences liées: FRM-001..FRM-003, HIS-001..HIS-008, REG-002, REG-007.
 Statut: ACCEPTED — LOT 2A implémenté, testé et gelé en v0.6.0
+
+## ADR-LOT2A1-001 — Séparation des templates et des formules contractuelles
+
+ADR-ID: ADR-LOT2A1-001
+Date: 2026-09-20
+Sujet: Bibliothèque de modèles et copie vers `MarketFormula`
+Contexte: LOT 2A est gelé en v0.6.0 ; une bibliothèque doit accélérer la
+création sans transformer un modèle en formule applicable à un marché.
+Décision: un `FormulaTemplate` versionné est une référence réutilisable. Sa
+sélection crée transactionnellement une `MarketFormula DRAFT` et des
+`FormulaTerm` indépendants. Seule une provenance de copie est conservée ;
+aucun calcul ne relit dynamiquement le template.
+Motif: préserver l'indépendance contractuelle et empêcher toute modification
+rétroactive des marchés.
+Impact: le workflow template et l'API de copie sont propres à LOT 2A.1 ;
+aucun `PriceItem` ou moteur de révision n'est introduit.
+Exigences liées: TPL-001, TPL-009, TPL-010, TPL-011
+Statut: ACCEPTED — DESIGN LOT 2A.1
+
+## ADR-LOT2A1-002 — Versionnement, provenance et portée des templates
+
+ADR-ID: ADR-LOT2A1-002
+Date: 2026-09-20
+Sujet: Familles, versions, statuts et portée GLOBAL/COMPANY
+Contexte: les références doivent être traçables sans préjuger de leur
+validité réglementaire.
+Décision: `family_key` fournit l'identité stable, `version_number` distingue
+les versions, et les statuts sont `DRAFT`, `VERIFIED`, `DEPRECATED`. LOT
+2A.1 implémente prioritairement `GLOBAL` ; `COMPANY` est réservé par une
+relation propriétaire nullable et des permissions futures. Une version
+`VERIFIED` est immuable. `OFFICIAL` décrit une provenance, pas une
+validation automatique.
+Motif: séparer identité, provenance et confiance documentaire.
+Impact: aucune formule n'est préchargée comme `VERIFIED` sans preuve ; les
+templates utilisés sont conservés pour l'historique.
+Exigences liées: TPL-002 à TPL-007, TPL-014
+Statut: ACCEPTED — DESIGN LOT 2A.1
+
+## ADR-LOT2A1-003 — Référence future aux définitions d'indices
+
+ADR-ID: ADR-LOT2A1-003
+Date: 2026-09-20
+Sujet: IndexDefinition sans valeurs mensuelles dans LOT 2A.1
+Contexte: les templates portent des codes d'indices, tandis que les
+valeurs temporelles relèvent d'un lot réglementaire et de données futur.
+Décision: LOT 2A.1 conserve `index_code` comme référence opaque et réserve
+architecturalement `IndexDefinition`. Il n'implémente ni `IndexValue`, ni
+barèmes, ni scraping, import PDF ou sélection temporelle automatique.
+Motif: éviter une dépendance prématurée et toute formule réglementaire
+implicitement calculée.
+Impact: l'intégration future des valeurs d'indices devra faire l'objet d'un
+lot et d'une validation documentaire distincts.
+Exigences liées: TPL-008, TPL-012, TPL-013
+Statut: ACCEPTED — DESIGN LOT 2A.1

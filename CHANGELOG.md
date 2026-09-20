@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.6.1 — LOT 2A.1 Bibliothèque des modèles de formules
+
+- Bibliothèque de modèles de formules de révision avec templates `GLOBAL`.
+- Versionnement et immutabilité des versions publiées/vérifiées.
+- Copie transactionnelle et indépendante vers une `MarketFormula DRAFT`.
+- Lecture des templates GLOBAL réservée aux utilisateurs authentifiés avec une `Membership` active ou aux superusers ; correction de `MAJOR-001`.
+- Interface LOT 2A.1 pour rechercher, prévisualiser et utiliser un modèle, avec conservation du parcours de formule personnalisée.
+- Aucun moteur réglementaire définitif, `IndexDefinition`, `IndexValue`, barème, BDP ou fonctionnalité LOT 2B n'est inclus.
+- `PV-REG-001` reste `PENDING_VALIDATION`.
+
 ## v0.6.0 — LOT 2A Formules contractuelles
 
 - Groupes de révision (`RevisionGroup`) rattachés aux marchés.

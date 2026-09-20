@@ -8,11 +8,12 @@ from rest_framework.views import APIView
 
 from accounts.views import error_response
 from companies.models import Company
-from companies.permissions import can_update, get_membership
+from companies.permissions import can_read_global_resources, can_update, get_membership
 
-from .models import Market, MarketLot
+from .models import FormulaTemplate, Market, MarketLot
 from .permissions import can_update_market
-from .serializers import MarketFormulaSerializer, MarketLotSerializer, MarketSerializer, RevisionGroupSerializer
+from .serializers import FormulaTemplateSerializer, MarketFormulaSerializer, MarketLotSerializer, MarketSerializer, RevisionGroupSerializer
+from .services import copy_formula_template
 from .models import MarketFormula, RevisionGroup
 
 
@@ -279,3 +280,54 @@ class MarketFormulaDetailView(APIView):
         except ValidationError as exc:
             return error_response("VALIDATION_ERROR", "Les données sont invalides.", {"formula": exc.messages})
         return Response(MarketFormulaSerializer(formula, context={"request": request}).data)
+
+
+class FormulaTemplateListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not can_read_global_resources(request.user):
+            return error_response("PERMISSION_DENIED", "Une Membership active est requise.", http_status=status.HTTP_403_FORBIDDEN)
+        templates = FormulaTemplate.objects.filter(scope=FormulaTemplate.Scope.GLOBAL).prefetch_related("terms")
+        query = request.query_params.get("q", "").strip()
+        if query:
+            templates = templates.filter(
+                Q(code__icontains=query) | Q(designation__icontains=query) | Q(domain__icontains=query) | Q(source_title__icontains=query)
+            )
+        requested_status = request.query_params.get("status")
+        if requested_status:
+            templates = templates.filter(status=requested_status)
+        return Response(FormulaTemplateSerializer(templates, many=True, context={"request": request}).data)
+
+
+class FormulaTemplateDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, template_id):
+        if not can_read_global_resources(request.user):
+            return error_response("PERMISSION_DENIED", "Une Membership active est requise.", http_status=status.HTTP_403_FORBIDDEN)
+        template = FormulaTemplate.objects.filter(id=template_id, scope=FormulaTemplate.Scope.GLOBAL).prefetch_related("terms").first()
+        if template is None:
+            return error_response("NOT_FOUND", "Template introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        return Response(FormulaTemplateSerializer(template, context={"request": request}).data)
+
+
+class MarketFormulaFromTemplateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, market_id, group_id):
+        market = accessible_market(request.user, market_id)
+        if market is None:
+            return error_response("NOT_FOUND", "Marché introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        if not can_update_market(request.user, market):
+            return error_response("PERMISSION_DENIED", "Action non autorisée.", http_status=status.HTTP_403_FORBIDDEN)
+        template_id = request.data.get("template_id")
+        if not template_id or set(request.data) != {"template_id"}:
+            return error_response("VALIDATION_ERROR", "Les données sont invalides.", {"template_id": ["Le template_id est obligatoire."]})
+        if not RevisionGroup.objects.filter(id=group_id, market=market).exists():
+            return error_response("NOT_FOUND", "Groupe de révision introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        try:
+            formula = copy_formula_template(template_id=template_id, revision_group_id=group_id, user=request.user)
+        except ValidationError as exc:
+            return error_response("VALIDATION_ERROR", "Les données sont invalides.", {"template": exc.messages})
+        return Response(MarketFormulaSerializer(formula, context={"request": request}).data, status=status.HTTP_201_CREATED)

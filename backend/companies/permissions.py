@@ -12,3 +12,8 @@ def get_membership(user, company):
 
 def can_update(role):
     return role in {Membership.Role.OWNER, Membership.Role.ADMIN}
+
+
+def can_read_global_resources(user):
+    """Global business references remain behind the application's Membership boundary."""
+    return user.is_superuser or Membership.objects.filter(user=user, active=True).exists()
