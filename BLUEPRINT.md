@@ -14,6 +14,36 @@
 
 ------------------------------------------------------------------------
 
+## LOT 2B — Bordereau et affectation aux formules — v0.7.0 gelé
+
+Le LOT 2B est implémenté, testé, validé et gelé dans le candidat v0.7.0.
+Aucun déploiement ni migration de production n'est inclus dans ce gel. Un
+marché peut avoir un `PriceSchedule` explicite contenant
+des `PriceItem`. Chaque article est affecté à zéro ou une formule de
+révision, jamais à plusieurs. La relation technique proposée est une FK
+nullable `PriceItem → RevisionGroup → MarketFormula` ; `MarketLot` reste
+indépendant et un même lot peut contenir plusieurs formules.
+
+Dans l'interface, `RevisionGroup` est nommé « Formule de révision ». Une
+absence d'affectation ne crée ni `K=1` ni formule artificielle. La
+classification utilisateur obligatoire distingue `PENDING_CLASSIFICATION`,
+`REVISABLE` et `NON_REVISABLE`, sans déduction à partir de la désignation.
+`REVISABLE` exige une formule avant calcul/validation ; `NON_REVISABLE` n'en
+possède aucune ; `PENDING_CLASSIFICATION` ne reçoit aucune affectation
+définitive et ne peut pas entrer silencieusement dans un calcul.
+Les quantités et montants utilisent Decimal/NUMERIC, et les numéros de prix
+restent des chaînes opaques.
+
+La matrice et les opérations « Tout sélectionner »/« Tout désélectionner »
+doivent être exclusives et transactionnelles côté backend. Le backend/service
+doit empêcher les rattachements inter-marchés ; PostgreSQL apporte les
+contraintes qu'il peut exprimer correctement, sans contrainte artificielle.
+Les futurs
+snapshots de décompte copieront les données du prix, du groupe et de la
+formule applicable ; LOT 2B ne crée pas encore `StatementItem`.
+
+------------------------------------------------------------------------
+
 ## 1. Finalité du produit
 
 Construire une application Web professionnelle permettant de gérer,
@@ -400,6 +430,17 @@ K = 0,15 + 0,85 x (BAT3 / BAT3_0)
 
 Ne jamais stocker uniquement cette chaîne comme seule représentation
 métier.
+
+Pour une formule simple mono-index `K = C + A x INDEX / INDEX0`, la règle
+approuvée est `C + A = 1`. Si l'utilisateur renseigne `C`, l'application
+calcule `A = 1 - C` avec `Decimal` et n'exige pas la saisie redondante des
+deux coefficients. Cette complémentarité ne s'applique pas par défaut aux
+formules multi-indices ; leur structure contractuelle doit être vérifiée.
+
+Dans l'interface métier, les actions utilisent « Ajouter une formule de
+révision », « Formule de révision », partie fixe, indice et partie variable.
+`RevisionGroup` et `FormulaTerm` restent des notions internes de modèle et
+ne doivent pas être exposées inutilement.
 
 ### `MarketFormula` (lot ultérieur)
 

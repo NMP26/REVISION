@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.7.0 — LOT 2B Bordereau et affectation aux formules
+
+- `PriceSchedule` et `PriceItem` avec numéro opaque, valeurs Decimal, lot
+  optionnel et classification explicite.
+- Parcours `GLOBAL_FORMULA` sans BDP obligatoire ni création artificielle de
+  `PriceItem` ; parcours `PRICE_ASSIGNMENT` avec affectation exclusive et
+  possibilité explicite « Sans révision ».
+- Affectations individuelles et bulk atomiques, permissions OWNER/ADMIN et
+  isolation inter-marchés validées.
+- Migration additive `0006` auditée depuis zéro et depuis le schéma `0005`
+  dans PostgreSQL de test isolé ; aucune application en production.
+- Invariant Decimal : partie fixe + somme des coefficients indicés = 1.
+- Import Excel/CSV complet, snapshots `StatementItem`, indices et moteur de
+  révision restent hors périmètre.
+- Production conservée en v0.6.1 ; aucune donnée de production modifiée.
+
 ## v0.6.1 — LOT 2A.1 Bibliothèque des modèles de formules
 
 - Bibliothèque de modèles de formules de révision avec templates `GLOBAL`.

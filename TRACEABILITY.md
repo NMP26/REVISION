@@ -173,6 +173,36 @@ Exigence → ADR → Spec → Code → Migration → Test → Version
 | OPS-002 | Aucun lot suivant ne démarre sans autorisation explicite et traçabilité. | Cahier cumulatif §18 | ADR-GOV-015 | plans/MASTER_PLAN.md | gouvernance | — | revue documentaire | APPROVED | GOV-1.1 |
 | OPS-003 | Les données saisies en production sont persistantes. Un déploiement, rebuild, upgrade ou migration ne doit jamais entraîner leur suppression ou leur réinitialisation. | Exigence audit persistance production | ADR-GOV-016 | architecture/DEPLOYMENT.md; docs/OPERATIONS.md; docs/MIGRATION.md; docs/BACKUP_RESTORE.md | compose.yaml; scripts/backup.sh; Makefile | — | make backup; make doctor; vérification volumes; test down/up documenté | VALIDATED | v0.4.1 |
 
+## LOT 2B — exigences validées et gel v0.7.0
+
+Ces exigences sont implémentées, testées et validées dans le candidat
+v0.7.0. La preuve de migration couvre une base vide et une base au schéma
+`0005`, exclusivement dans PostgreSQL de test isolé. Les lignes de
+conception ci-dessous sont complétées par la preuve d'implémentation locale
+et le réaudit final.
+
+| ID | Exigence | Source | ADR | Spec | Code | Migration | Test | Statut | Version |
+|---|---|---|---|---|---|---|---|---|---|
+| BDP-019 | `PriceSchedule` est optionnel, unique par `Market` et regroupe les `PriceItem` du marché. | Décision produit LOT 2B §4 | ADR-LOT2B-001/004 | specs/04-bordereau-prix.md | — | — | revue documentaire | APPROVED | LOT2B-DESIGN |
+| BDP-020 | Un `PriceItem` porte un numéro opaque, désignation, unité, quantités et montants Decimal, lot optionnel, statut, notes et groupe optionnel. | Décision produit LOT 2B §§1,3,7 | ADR-LOT2B-001/004 | specs/04-bordereau-prix.md | — | — | revue documentaire | APPROVED | LOT2B-DESIGN |
+| BDP-021 | Un `PriceItem` appartient à zéro ou une formule via une FK nullable vers `RevisionGroup`, jamais plusieurs. | Principe cardinalité | ADR-LOT2B-001 | specs/04-bordereau-prix.md | — | — | revue documentaire | APPROVED | LOT2B-DESIGN |
+| BDP-022 | Aucun traitement révisable/non révisable n'est déduit de la désignation. | Décision produit LOT 2B §1 | ADR-LOT2B-002 | specs/04-bordereau-prix.md | — | — | revue documentaire | APPROVED | LOT2B-DESIGN |
+| BDP-023 | `PENDING_CLASSIFICATION`, `REVISABLE` et `NON_REVISABLE` imposent une cohérence stricte de l'affectation. | Décision produit LOT 2B §§1,2 | ADR-LOT2B-002 | specs/04-bordereau-prix.md | — | — | revue documentaire | APPROVED | LOT2B-DESIGN |
+| BDP-024 | L'affectation individuelle et bulk remplace l'ancien groupe dans une transaction. | Décision produit LOT 2B §§2,6 | ADR-LOT2B-003 | specs/04-bordereau-prix.md | — | — | revue documentaire | APPROVED | LOT2B-DESIGN |
+| BDP-025 | `Tout sélectionner` et `Tout désélectionner` n'introduisent aucune affectation multiple. | Décision produit LOT 2B §3 | ADR-LOT2B-003 | specs/04-bordereau-prix.md | — | — | revue documentaire | APPROVED | LOT2B-DESIGN |
+| BDP-026 | La cohérence inter-marchés est garantie par le backend/service ; une contrainte PostgreSQL n'est ajoutée que si elle est techniquement correcte. | Décision produit LOT 2B §5 | ADR-LOT2B-001/004 | architecture/DATA_MODEL.md | — | — | revue documentaire | APPROVED | LOT2B-DESIGN |
+| BDP-027 | Le numéro de prix est unique au niveau du marché via le `PriceSchedule OneToOne` et les doublons d'import sont rejetés avant écriture. | Décision produit LOT 2B §4 | ADR-LOT2B-004 | specs/04-bordereau-prix.md | — | — | revue documentaire | APPROVED | LOT2B-DESIGN |
+| BDP-028 | Les futurs décomptes copieront les données BDP et formule dans des snapshots sans être créés par LOT 2B. | Décision produit LOT 2B §6 | ADR-LOT2B-004 | architecture/DATA_MODEL.md | — | — | revue documentaire | APPROVED | LOT2B-DESIGN |
+| BDP-029 | Les imports futurs sont isolés sous `imports/price_schedule/`, avec écarts de montant signalés et jamais corrigés silencieusement. | Décision produit LOT 2B §7 | ADR-GOV-012, ADR-LOT2B-004 | architecture/API.md | — | — | revue documentaire | APPROVED | LOT2B-DESIGN |
+| FRM-016 | Pour une formule simple mono-index `K=C+A×INDEX/INDEX0`, `A=1-C` est calculé avec Decimal ; cette règle ne s'applique pas automatiquement aux multi-index. | Décision produit LOT 2B §8 | ADR-LOT2B-005 | specs/03-formules.md; BLUEPRINT.md | — | — | revue documentaire | APPROVED | v0.6.1-DESIGN |
+| BDP-030 | Le marché porte explicitement le mode `GLOBAL_FORMULA` ou `PRICE_ASSIGNMENT`; ce mode n'est pas déduit du nombre de formules. | Décision métier finale LOT 2B | ADR-LOT2B-006 | plans/LOT-02B.md | — | — | revue documentaire | APPROVED | LOT2B-PLAN |
+| BDP-031 | `GLOBAL_FORMULA` permet une formule globale sans `PriceSchedule`/`PriceItem` obligatoire pour la révision. | Décision métier finale LOT 2B | ADR-LOT2B-006 | plans/LOT-02B.md | — | — | revue documentaire | APPROVED | LOT2B-PLAN |
+| BDP-032 | `PRICE_ASSIGNMENT` rend le BDP nécessaire pour distinguer les formules et les prix sans révision. | Décision métier finale LOT 2B | ADR-LOT2B-006 | plans/LOT-02B.md | — | — | revue documentaire | APPROVED | LOT2B-PLAN |
+| BDP-033 | Une seule formule avec des prix `NON_REVISABLE` reste en `PRICE_ASSIGNMENT`. | Décision métier finale LOT 2B | ADR-LOT2B-006 | plans/LOT-02B.md | — | — | revue documentaire | APPROVED | LOT2B-PLAN |
+| BDP-034 | Les montants des futurs décomptes peuvent référencer directement la formule globale. | Décision métier finale LOT 2B | ADR-LOT2B-006 | plans/LOT-02B.md | — | — | revue documentaire | APPROVED | LOT2B-PLAN |
+| BDP-035 | Les changements de mode sont contrôlés et ne suppriment aucune donnée silencieusement. | Décision métier finale LOT 2B | ADR-LOT2B-006 | plans/LOT-02B.md | — | — | revue documentaire | APPROVED | LOT2B-PLAN |
+| BDP-036 | La formule simple conserve la contrainte Decimal partie fixe + coefficients indicés = 1. | Décision métier finale LOT 2B | ADR-LOT2B-006, ADR-LOT2B-005 | plans/LOT-02B.md | — | — | revue documentaire | APPROVED | LOT2B-PLAN |
+
 Les exigences `APPROVED` et `PLANNED` ne signifient pas que le code
 correspondant existe. Aucun élément n'est marqué `IMPLEMENTED`, `TESTED`
 ou `VALIDATED` sans preuve.
@@ -262,3 +292,20 @@ GLOBAL et la publication de sources officielles restent hors périmètre.
 | TPL-012 | Aucune déduction métier/BAT3 en dur | aucun seed/moteur ajouté | contrôle de périmètre | IMPLEMENTED / TESTED |
 | TPL-013 | IndexDefinition futur, aucun IndexValue/barème | aucun modèle correspondant | contrôle de périmètre | IMPLEMENTED / TESTED |
 | TPL-014 | Historique conservé et DEPRECATED non par défaut | `backend/markets/models.py`; API | tests de suppression protégée | IMPLEMENTED / TESTED |
+
+## Implémentation LOT 2B — validation et gel v0.7.0
+
+Statut : `IMPLEMENTED — TESTED — VALIDATED — FROZEN`. Le commit, le tag et le
+push du candidat v0.7.0 sont autorisés. Aucun déploiement, migration ou
+changement de données de production n'est inclus.
+
+| Exigence | Implémentation | Migration | Tests / preuve | Statut |
+|---|---|---|---|---|
+| BDP-019..BDP-022 | Modes explicites `GLOBAL_FORMULA` / `PRICE_ASSIGNMENT`, traitement et affectation contrôlés | `markets/0006...` | `Lot2BApiTests`, tests de transition, migration from zero/from 0005 | IMPLEMENTED / TESTED / VALIDATED |
+| BDP-023..BDP-026 | `PriceSchedule`, `PriceItem`, statuts de classification, Decimal et numéro opaque | `markets/0006...` | `Lot2BApiTests`, suite backend | IMPLEMENTED / TESTED / VALIDATED |
+| BDP-027..BDP-029 | Exclusivité d'affectation et opérations bulk transactionnelles | — | réaffectation F1→F2, sans révision, isolation | IMPLEMENTED / TESTED / VALIDATED |
+| BDP-030..BDP-036 | API autoritaire, permissions et matrice métier | — | suite API et tests frontend marchés | IMPLEMENTED / TESTED / VALIDATED |
+| FRM-016 | UX formules basée sur les templates, partie variable Decimal dérivée | — | `MarketsPage.test.tsx`, build frontend | IMPLEMENTED / TESTED / VALIDATED |
+
+L'import Excel/CSV complet, les snapshots `StatementItem` et le moteur de
+révision restent hors périmètre et ne sont pas introduits par LOT 2B.

@@ -1,6 +1,6 @@
-STATUS: LOT 1B APPROVED — LOT 2A FROZEN v0.6.0
-IMPLEMENTATION: LOT 1B IMPLEMENTED ; LOT 2A IMPLEMENTED — TESTED — FROZEN v0.6.0
-SOURCE: ADR-LOT1B-001, ADR-LOT2A-001, specs/02-marches.md, specs/03-formules.md
+STATUS: LOT 1B APPROVED — LOT 2A/2A.1 FROZEN — LOT 2B DESIGN APPROVED
+IMPLEMENTATION: LOT 1B IMPLEMENTED ; LOT 2A/2A.1 IMPLEMENTED — TESTED ; LOT 2B NOT AUTHORIZED
+SOURCE: ADR-LOT1B-001, ADR-LOT2A-001, ADR-LOT2B-001..005, specs/02-marches.md, specs/03-formules.md, specs/04-bordereau-prix.md
 
 # Modèle de données LOT 1B
 
@@ -200,3 +200,44 @@ membership actif, avec l'exception superuser Django existante.
 ## Évolution LOT 1C — référentiel et groupements
 
 Les modèles `ContractingAuthority`, `AuthorityAlias`, `CompanyAuthority`, `Consortium` et `ConsortiumMember` sont additifs et désactivables logiquement. `Market.company` reste la société de dossier pendant la migration progressive ; `holder_type` et le couple `holder_company`/`consortium` portent le titulaire avec une contrainte DB exclusive. Les futures révisions devront copier les noms, membres, mandataire et quotes-parts dans un snapshot immuable ; elles ne devront pas dépendre des FK vivantes.
+
+## Conception LOT 2B — bordereau et affectation
+
+Cette section est documentaire uniquement. Aucun modèle Django, aucune
+migration et aucune table n'est créée par la présente phase.
+
+```text
+Market 1 ─── 0..1 PriceSchedule 1 ─── N PriceItem ─── 0..1 RevisionGroup
+RevisionGroup 1 ─── N MarketFormula (versions)
+MarketLot 1 ─── N PriceItem (optionnel)
+```
+
+`PriceSchedule` est le bordereau explicite d'un marché. `PriceItem` conserve
+`price_number` comme chaîne opaque, sa désignation, unité, quantité estimée,
+PU HT, montant estimé HT, lot optionnel, statut de classification, groupe
+optionnel, actif et notes. Quantités et montants sont Decimal/NUMERIC ;
+aucun float n'est autorisé.
+
+Le rattachement à une formule est une FK nullable vers `RevisionGroup`, pas
+vers `MarketFormula` et pas vers une table de liaison. Le groupe reste le
+concept technique stable ; l'interface utilise « Formule de révision ». Une
+ligne sans FK n'est pas automatiquement révisable ou non révisable.
+`PENDING_CLASSIFICATION`, `REVISABLE` et `NON_REVISABLE` sont obligatoires :
+`REVISABLE` exige un groupe avant calcul/validation, `NON_REVISABLE` interdit
+un groupe et `PENDING_CLASSIFICATION` interdit toute affectation définitive.
+
+Les lots ne possèdent aucune formule. Le service/backend validera que le lot
+et le groupe appartiennent au marché du bordereau. Une contrainte PostgreSQL
+inter-tables ne sera ajoutée que si une implémentation correcte est démontrée
+; aucune contrainte artificielle ou partielle ne doit être présentée comme
+une garantie.
+
+`UNIQUE(price_schedule, price_number)` est la contrainte proposée : les
+numéros `00001`, `A-001` et `1.2.3` restent des chaînes. Les doublons
+d'import sont rejetés avant écriture, sans suffixe ni écrasement.
+
+Une formule utilisée n'est pas supprimée physiquement. Une version validée
+reste immuable et une évolution crée une nouvelle `MarketFormula` dans le
+même groupe. Les futurs `StatementItem` copieront, au moment de la
+validation, les données du prix, son statut, son groupe et la formule/version
+applicable dans un snapshot ; LOT 2B ne crée pas ces modèles.

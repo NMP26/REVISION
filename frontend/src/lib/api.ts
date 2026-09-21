@@ -69,6 +69,8 @@ export type Market = {
   contract_duration_value: number | null
   contract_duration_unit: 'DAYS' | 'MONTHS' | null
   formula_structure: 'SINGLE' | 'MULTIPLE'
+  revision_application_mode?: 'GLOBAL_FORMULA' | 'PRICE_ASSIGNMENT'
+  global_revision_group?: string | null
   status: 'ACTIVE' | 'ARCHIVED'
   notes: string
   created_at: string
@@ -115,6 +117,28 @@ export type RevisionGroup = {
   id: string; market: string; code: string; name: string; description: string; sort_order: number;
   active: boolean; notes: string; created_at: string; updated_at: string; formulas: MarketFormula[]
 }
+export type RevisionApplication = {
+  revision_application_mode: 'GLOBAL_FORMULA' | 'PRICE_ASSIGNMENT'
+  global_revision_group: string | null
+  global_formula: MarketFormula | null
+  price_schedule_required: boolean
+  updated_at: string
+}
+export type PriceSchedule = {
+  id: string; market: string; status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED'; source_type: 'MANUAL' | 'IMPORT';
+  name: string; notes: string; change_version: number; item_count: number; created_at: string; updated_at: string
+}
+export type PriceItem = {
+  id: string; price_schedule: string; lot: string | null; price_number: string; designation: string; unit: string;
+  estimated_quantity: string; unit_price_ht: string; estimated_amount_ht: string; revision_group: string | null;
+  classification_status: 'PENDING_CLASSIFICATION' | 'REVISABLE' | 'NON_REVISABLE'; active: boolean; notes: string;
+  created_at: string; updated_at: string
+}
+export type PriceItemPage = { count: number; next: number | null; previous: number | null; results: PriceItem[] }
+export type PriceMatrix = {
+  mode: 'GLOBAL_FORMULA' | 'PRICE_ASSIGNMENT'; price_schedule_required: boolean;
+  formulas: Array<{ id: string; name: string; code: string; formulas: MarketFormula[] }>; items: PriceItem[]
+}
 
 export function login(email: string, password: string) {
   return api<User>('/auth/login/', { method: 'POST', body: JSON.stringify({ email, password }) })
@@ -159,4 +183,23 @@ export function saveMarketFormula(marketId: string, groupId: string, data: Recor
 export function listFormulaTemplates(query = '') { return api<FormulaTemplate[]>(`/formula-templates/${query ? `?q=${encodeURIComponent(query)}` : ''}`) }
 export function copyFormulaTemplate(marketId: string, groupId: string, templateId: string) {
   return api<MarketFormula>(`/markets/${marketId}/revision-groups/${groupId}/formulas/from-template/`, { method: 'POST', body: JSON.stringify({ template_id: templateId }) })
+}
+export function getRevisionApplication(marketId: string) { return api<RevisionApplication>(`/markets/${marketId}/revision-application/`) }
+export function saveRevisionApplication(marketId: string, data: Record<string, unknown>) {
+  return api<RevisionApplication>(`/markets/${marketId}/revision-application/`, { method: 'PATCH', body: JSON.stringify(data) })
+}
+export function getPriceSchedule(marketId: string) { return api<{ required: boolean; schedule: PriceSchedule | null }>(`/markets/${marketId}/price-schedule/`) }
+export function createPriceSchedule(marketId: string, data: Record<string, unknown> = {}) {
+  return api<PriceSchedule>(`/markets/${marketId}/price-schedule/`, { method: 'POST', body: JSON.stringify(data) })
+}
+export function listPriceItems(marketId: string, params: Record<string, string | number> = {}) {
+  const query = new URLSearchParams(Object.entries(params).map(([key, value]) => [key, String(value)])).toString()
+  return api<PriceItemPage>(`/markets/${marketId}/price-schedule/items/${query ? `?${query}` : ''}`)
+}
+export function savePriceItem(marketId: string, data: Record<string, unknown>, itemId?: string) {
+  return api<PriceItem>(itemId ? `/markets/${marketId}/price-schedule/items/${itemId}/` : `/markets/${marketId}/price-schedule/items/`, { method: itemId ? 'PATCH' : 'POST', body: JSON.stringify(data) })
+}
+export function getPriceMatrix(marketId: string) { return api<PriceMatrix>(`/markets/${marketId}/price-schedule/matrix/`) }
+export function assignPriceItems(marketId: string, data: Record<string, unknown>) {
+  return api<{ updated: number; change_version: number }>(`/markets/${marketId}/price-schedule/assignments/`, { method: 'POST', body: JSON.stringify(data) })
 }

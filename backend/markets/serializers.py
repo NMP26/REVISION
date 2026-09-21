@@ -9,7 +9,10 @@ from consortia.models import Consortium
 from consortia.permissions import can_manage_consortium
 from companies.permissions import get_membership
 
-from .models import FormulaTemplate, FormulaTemplateTerm, FormulaTerm, Market, MarketFormula, MarketLot, RevisionGroup
+from .models import (
+    FormulaTemplate, FormulaTemplateTerm, FormulaTerm, Market, MarketFormula, MarketLot,
+    PriceItem, PriceSchedule, RevisionGroup,
+)
 
 
 def validate_non_blank(value, label):
@@ -53,9 +56,10 @@ class MarketSerializer(serializers.ModelSerializer):
             "id", "company", "company_detail", "holder_type", "holder_company", "holder_company_detail", "consortium", "consortium_detail", "authority", "authority_detail", "market_number", "contracting_authority", "subject",
             "amount_ht", "vat_rate", "date_limite_remise_offres", "date_ouverture_plis", "date_signature",
             "date_os_commencement", "contract_duration_value", "contract_duration_unit", "formula_structure",
+            "revision_application_mode", "global_revision_group",
             "status", "notes", "created_at", "updated_at", "current_user_role", "lots_count",
         ]
-        read_only_fields = ["id", "company_detail", "holder_company_detail", "consortium_detail", "authority_detail", "created_at", "updated_at", "current_user_role", "lots_count"]
+        read_only_fields = ["id", "company_detail", "holder_company_detail", "consortium_detail", "authority_detail", "created_at", "updated_at", "current_user_role", "lots_count", "revision_application_mode", "global_revision_group"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -159,6 +163,59 @@ class StrictDecimalField(serializers.DecimalField):
         if data is not None and not isinstance(data, str):
             raise serializers.ValidationError("Cette valeur doit être fournie comme chaîne décimale.")
         return super().to_internal_value(data)
+
+
+class RevisionApplicationSerializer(serializers.Serializer):
+    revision_application_mode = serializers.ChoiceField(choices=Market.RevisionApplicationMode.choices)
+    global_revision_group = serializers.PrimaryKeyRelatedField(queryset=RevisionGroup.objects.all(), required=False, allow_null=True)
+    expected_updated_at = serializers.DateTimeField(required=False)
+
+
+class PriceScheduleSerializer(serializers.ModelSerializer):
+    market = serializers.PrimaryKeyRelatedField(read_only=True)
+    item_count = serializers.IntegerField(source="items.count", read_only=True)
+
+    class Meta:
+        model = PriceSchedule
+        fields = ["id", "market", "status", "source_type", "name", "notes", "change_version", "item_count", "created_at", "updated_at"]
+        read_only_fields = ["id", "market", "change_version", "item_count", "created_at", "updated_at"]
+
+    def validate_name(self, value):
+        return value.strip()
+
+
+class PriceItemSerializer(serializers.ModelSerializer):
+    estimated_quantity = StrictDecimalField(max_digits=18, decimal_places=6)
+    unit_price_ht = StrictDecimalField(max_digits=18, decimal_places=8)
+    estimated_amount_ht = StrictDecimalField(max_digits=18, decimal_places=2)
+    price_schedule = serializers.PrimaryKeyRelatedField(read_only=True)
+
+    class Meta:
+        model = PriceItem
+        fields = [
+            "id", "price_schedule", "lot", "price_number", "designation", "unit",
+            "estimated_quantity", "unit_price_ht", "estimated_amount_ht", "revision_group",
+            "classification_status", "active", "notes", "created_at", "updated_at",
+        ]
+        read_only_fields = ["id", "price_schedule", "created_at", "updated_at"]
+
+    def validate_price_number(self, value):
+        return validate_non_blank(value, "Le numéro de prix")
+
+    def validate_designation(self, value):
+        return validate_non_blank(value, "La désignation")
+
+    def validate_unit(self, value):
+        return validate_non_blank(value, "L'unité")
+
+    def validate(self, attrs):
+        classification = attrs.get("classification_status", getattr(self.instance, "classification_status", PriceItem.ClassificationStatus.PENDING_CLASSIFICATION))
+        group = attrs.get("revision_group", getattr(self.instance, "revision_group", None))
+        if classification == PriceItem.ClassificationStatus.REVISABLE and group is None:
+            raise serializers.ValidationError({"revision_group": "Un prix révisable doit être affecté à une formule."})
+        if classification != PriceItem.ClassificationStatus.REVISABLE and group is not None:
+            raise serializers.ValidationError({"revision_group": "Un prix non classé ou sans révision ne peut pas être affecté à une formule."})
+        return attrs
 
 
 class FormulaTermSerializer(serializers.ModelSerializer):

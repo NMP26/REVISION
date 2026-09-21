@@ -1,6 +1,6 @@
 STATUS: DESIGN APPROVED — LOT 2A FROZEN v0.6.0
 IMPLEMENTATION: LOT 2A IMPLEMENTED — TESTED — FROZEN v0.6.0
-SOURCE: BLUEPRINT §§10–11, ADR-GOV-003, ADR-GOV-005, ADR-GOV-007, ADR-REG-001
+SOURCE: BLUEPRINT §§10–11, ADR-GOV-003, ADR-GOV-005, ADR-GOV-007, ADR-REG-001, ADR-LOT2B-005
 
 # Formules contractuelles — LOT 2A
 
@@ -172,6 +172,29 @@ Messages fonctionnels proposés : `FORMULA_INCOMPLETE`,
 
 La validation bloque le passage à `VALIDATED`, jamais la simple sauvegarde
 DRAFT, sauf violation structurelle impossible à stocker.
+
+### 6.1 Formule simple mono-index — constante et partie variable
+
+Pour une structure contractuelle explicitement simple de la forme :
+
+```text
+K = C + A × INDEX / INDEX0
+```
+
+la règle métier approuvée est `C + A = 1`. Si `C` est fourni, `A` est
+calculé déterministiquement comme `1 - C` ; l'utilisateur ne doit pas saisir
+deux valeurs redondantes. Par exemple `C = 0,15` donne `A = 0,85`, et
+`C = 0,10` donne `A = 0,90`.
+
+Cette détermination utilise `Decimal` et conserve la précision contractuelle
+jusqu'à la politique d'arrondi validée. L'interface future affichera la
+partie fixe, l'indice choisi et la partie variable calculée, sans exposer
+inutilement `RevisionGroup` ou `FormulaTerm`.
+
+Cette règle ne se généralise pas aux formules multi-indices. Pour
+`K = C + a × I1/I10 + b × I2/I20 + …`, la structure et les coefficients
+doivent être vérifiés par rapport au contrat/CPS ; aucune complémentarité
+automatique entre les termes ne doit être appliquée.
 
 ## 7. Définition, indices et calcul
 

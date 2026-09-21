@@ -356,3 +356,160 @@ Impact: l'intégration future des valeurs d'indices devra faire l'objet d'un
 lot et d'une validation documentaire distincts.
 Exigences liées: TPL-008, TPL-012, TPL-013
 Statut: ACCEPTED — DESIGN LOT 2A.1
+
+## ADR-LOT2B-001 — Modèle BDP et cardinalité d'affectation
+
+ADR-ID: ADR-LOT2B-001
+Date: 2026-09-20
+Sujet: `PriceSchedule`, `PriceItem` et affectation à une formule
+Contexte: Le BDP doit permettre plusieurs formules dans un marché, plusieurs
+articles par lot et des articles sans formule. LOT 2A possède déjà
+`RevisionGroup → MarketFormula` versionné et `MarketLot` est indépendant des
+formules.
+Décision: créer un `PriceSchedule` au plus une fois par marché et
+des `PriceItem` rattachés au bordereau. `PriceItem.revision_group` est une
+FK nullable vers `RevisionGroup`, jamais une table de liaison. Le marché est
+déduit du bordereau, le lot reste optionnel. L'interface traduit
+`RevisionGroup` en « Formule de révision ».
+Motif: une FK nullable exprime directement 0..1, empêche la multi-affectation
+structurelle et conserve la stabilité du groupe pendant le versionnement des
+formules.
+Impact: les articles sont affectés à un groupe, non à une version individuelle
+de formule. Une nouvelle `MarketFormula` dans le groupe ne force pas une
+réécriture du BDP. `PriceSchedule` étant `OneToOne` avec `Market`, l'unicité
+de `price_number` sur le bordereau réalise l'unicité au niveau du marché.
+La cohérence inter-tables est garantie par le service/backend ; une
+contrainte PostgreSQL additionnelle ne sera ajoutée que si elle exprime la
+règle correctement, sans mécanisme artificiel.
+Exigences liées: BDP-001..BDP-010, BDP-017, FRM-005, FRM-009, LOT2B-001..006
+Statut: ACCEPTED — décision produit validée, implémentation non autorisée
+
+## LOT 2B — Décision de gel v0.7.0
+
+Le réaudit final LOT 2B est accepté. Les décisions ADR-LOT2B-001 à
+ADR-LOT2B-006 sont implémentées, testées et validées dans le candidat
+v0.7.0. Les deux parcours sont gelés : `GLOBAL_FORMULA` ne requiert pas de
+BDP et `PRICE_ASSIGNMENT` impose une affectation exclusive par prix, avec
+`NON_REVISABLE` explicite. La contrainte Decimal partie fixe + coefficients
+indicés = 1 est conservée.
+
+L'import Excel/CSV complet, les snapshots `StatementItem`, les indices et le
+moteur de révision restent hors périmètre. La migration 0006 est incluse et
+testée uniquement hors production ; la production reste en v0.6.1 sans
+migration ni modification de données. Le candidat est gelé sous v0.7.0.
+
+## ADR-LOT2B-006 — Mode explicite d'application globale ou par prix
+
+ADR-ID: ADR-LOT2B-006
+Date: 2026-09-20
+Sujet: Ne pas rendre le BDP obligatoire pour une formule couvrant tout le marché
+Contexte: Une seule formule peut soit couvrir toutes les prestations, soit
+coexister avec des prix non révisables. Le nombre de `MarketFormula` ne
+permet donc pas de déduire si le BDP est nécessaire.
+Décision: ajouter un état métier explicite au niveau du marché :
+`GLOBAL_FORMULA` ou `PRICE_ASSIGNMENT`. En `GLOBAL_FORMULA`, une seule
+`MarketFormula` est sélectionnée et les futurs montants de décompte peuvent
+référencer directement cette formule, sans `PriceSchedule`/`PriceItem`
+obligatoire. En `PRICE_ASSIGNMENT`, le BDP est requis pour distinguer les
+formules et les prix sans révision. Une formule unique avec des prix
+`NON_REVISABLE` est obligatoirement dans `PRICE_ASSIGNMENT`.
+Motif: représenter le choix contractuel explicite et éviter une obligation
+technique inutile ou une couverture globale déduite à tort.
+Impact: l'API et l'interface demandent explicitement le mode ; les
+transitions sont validées et ne suppriment aucune donnée silencieusement.
+La matrice et l'import sont conditionnels au mode `PRICE_ASSIGNMENT`.
+Exigences liées: BDP-030..BDP-036, LOT2B-022..027
+Statut: ACCEPTED — décision produit validée, implémentation non autorisée
+
+## ADR-LOT2B-005 — Saisie métier des formules simples mono-index
+
+ADR-ID: ADR-LOT2B-005
+Date: 2026-09-20
+Sujet: Calcul déterministe de la partie variable
+Contexte: Pour une formule contractuelle simple `K = C + A × INDEX / INDEX0`,
+la règle validée impose `C + A = 1`. La saisie de deux coefficients
+redondants augmente le risque d'incohérence, alors que les formules
+multi-indices ne suivent pas nécessairement cette complémentarité.
+Décision: pour cette structure simple uniquement, l'utilisateur renseigne
+la constante `C`, l'application calcule `A = 1 - C` avec `Decimal` et
+présente automatiquement la partie variable. Cette règle ne s'applique pas
+aux formules multi-indices sans vérification de leur structure contractuelle.
+L'interface utilise le vocabulaire métier « Ajouter une formule de révision »
+et masque autant que possible `RevisionGroup` et `FormulaTerm`.
+Motif: éviter la saisie redondante tout en conservant la fidélité aux
+structures contractuelles plus complexes.
+Impact: la spécification des formules et la future UI doivent distinguer la
+forme simple mono-index des formes multi-indices. La validation utilise
+Decimal et reste indépendante de la politique d'arrondi réglementaire.
+Exigences liées: FRM-016, LOT2B-021
+Statut: ACCEPTED — décision produit validée, implémentation non autorisée
+
+## ADR-LOT2B-002 — Classification explicite des prix sans formule
+
+ADR-ID: ADR-LOT2B-002
+Date: 2026-09-20
+Sujet: Différencier hors révision et non classé
+Contexte: Une absence d'affectation est valide, mais elle peut signifier soit
+« volontairement hors révision », soit « pas encore décidé ». Une désignation
+ne permet pas de décider automatiquement.
+Décision: conserver `revision_group = NULL` pour les deux cas et imposer un
+état explicite `PENDING_CLASSIFICATION`, `REVISABLE` ou `NON_REVISABLE`.
+`REVISABLE` doit être affecté à un groupe avant calcul/validation.
+`NON_REVISABLE` ne peut avoir aucun groupe. `PENDING_CLASSIFICATION` ne peut
+recevoir aucune affectation définitive et ne peut être utilisé silencieusement
+dans un calcul ; il bloque la validation qui exige une classification résolue.
+Motif: ne pas inventer `K=1`, une formule « Sans révision » ou une règle par
+mot-clé ; rendre l'intention utilisateur et l'incomplétude auditables.
+Impact: la matrice affichera séparément sans formule et à classer. Aucune
+classification ne sera déduite du texte de l'article et `NON_REVISABLE` ne
+sera jamais représenté par une formule `K=1`.
+Exigences liées: BDP-011..BDP-016, LOT2B-007..009
+Statut: ACCEPTED — décision produit validée, implémentation non autorisée
+
+## ADR-LOT2B-003 — Affectations bulk et matrice exclusive
+
+ADR-ID: ADR-LOT2B-003
+Date: 2026-09-20
+Sujet: Affectation individuelle et « Tout sélectionner »
+Contexte: Une matrice de plusieurs centaines de prix doit permettre une
+affectation rapide sans jamais produire de chevauchement.
+Décision: exposer une mutation bulk d'affectation/désaffectation,
+protégée par OWNER/ADMIN, exécutée dans une transaction avec verrouillage des
+articles concernés. Une affectation remplace l'ancien groupe ; une
+désaffectation met le groupe à NULL et ne choisit aucune autre formule.
+L'opération peut recevoir une liste d'IDs validés pour le marché ou un filtre
+serveur reproductible. Le frontend ne constitue qu'une aide visuelle.
+Motif: rendre l'exclusivité atomique et éviter une boucle de PATCH partiels.
+Impact: l'API devra être idempotente, retourner les compteurs et signaler
+les lignes refusées. La pagination/virtualisation n'aura pas à charger tous
+les articles pour effectuer un « Tout sélectionner ».
+Exigences liées: BDP-019..BDP-023, LOT2B-010..014
+Statut: ACCEPTED — décision produit validée, implémentation non autorisée
+
+## ADR-LOT2B-004 — Numérotation, intégrité inter-marchés et historique
+
+ADR-ID: ADR-LOT2B-004
+Date: 2026-09-20
+Sujet: Unicité des prix et préparation des snapshots
+Contexte: Les numéros de prix peuvent contenir des zéros, lettres et points.
+Les futurs décomptes doivent rester reproductibles après modification du BDP.
+Décision: conserver `price_number` comme chaîne et le rendre unique dans le
+`PriceSchedule` canonique du marché. Puisque `PriceSchedule` est `OneToOne`
+avec `Market`, `UNIQUE(price_schedule, price_number)` n'est pas une
+unicité globale et couvre le marché. Les doublons d'import sont rejetés
+avant écriture. Les affectations vers un lot ou un groupe d'un autre marché
+sont bloquées par le backend/service ; aucune contrainte PostgreSQL
+inter-table artificielle n'est imposée si elle ne peut être démontrée
+correcte.
+Les prix et formules utilisés par un décompte validé seront copiés dans un
+future snapshot `StatementItem`; LOT 2B ne crée pas ce modèle.
+Motif: préserver les identifiants contractuels, éviter les écrasements
+silencieux et isoler l'historique des valeurs vivantes.
+Impact: `Market` porte le bordereau canonique, `MarketLot` ne crée pas un
+espace de numérotation distinct et `PriceItem` conserve le numéro. Une
+formule/groupe utilisé ne sera pas supprimé physiquement. Un écart entre
+quantité × PU HT et montant HT importé est signalé, jamais corrigé
+silencieusement ; aucun seuil ou arrondi n'est inventé.
+Exigences liées: BDP-003, BDP-009, IMP-001, IMP-002, DEC-003..DEC-004,
+HIS-002..HIS-008, LOT2B-015..020
+Statut: ACCEPTED — décision produit validée, implémentation non autorisée

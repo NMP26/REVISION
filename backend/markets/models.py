@@ -98,6 +98,10 @@ class Market(models.Model):
         SINGLE = "SINGLE", "Formule unique"
         MULTIPLE = "MULTIPLE", "Formules multiples"
 
+    class RevisionApplicationMode(models.TextChoices):
+        GLOBAL_FORMULA = "GLOBAL_FORMULA", "Une seule formule pour l'ensemble du marché"
+        PRICE_ASSIGNMENT = "PRICE_ASSIGNMENT", "Affectation des formules prix par prix"
+
     class DurationUnit(models.TextChoices):
         DAYS = "DAYS", "Jours"
         MONTHS = "MONTHS", "Mois"
@@ -143,6 +147,18 @@ class Market(models.Model):
     formula_structure = models.CharField(
         max_length=10,
         choices=FormulaStructure.choices,
+    )
+    revision_application_mode = models.CharField(
+        max_length=30,
+        choices=RevisionApplicationMode.choices,
+        default=RevisionApplicationMode.PRICE_ASSIGNMENT,
+    )
+    global_revision_group = models.ForeignKey(
+        "RevisionGroup",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="global_markets",
     )
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.ACTIVE)
     notes = models.TextField(blank=True)
@@ -192,6 +208,13 @@ class Market(models.Model):
                 condition=models.Q(subject__regex=r"\S"),
                 name="market_subject_not_blank",
             ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(revision_application_mode="GLOBAL_FORMULA", global_revision_group__isnull=False)
+                    | models.Q(revision_application_mode="PRICE_ASSIGNMENT", global_revision_group__isnull=True)
+                ),
+                name="market_revision_mode_group_consistent",
+            ),
         ]
         indexes = [
             models.Index(fields=["company", "status"]),
@@ -216,6 +239,16 @@ class Market(models.Model):
             errors["consortium"] = "Une société titulaire ne peut pas avoir de groupement."
         if self.holder_type == self.HolderType.CONSORTIUM and self.holder_company_id is not None:
             errors["holder_company"] = "Un groupement titulaire ne peut pas avoir de société titulaire directe."
+        if self.revision_application_mode not in self.RevisionApplicationMode.values:
+            errors["revision_application_mode"] = "Le mode d'application de la révision est invalide."
+        if self.revision_application_mode == self.RevisionApplicationMode.GLOBAL_FORMULA and self.global_revision_group_id is None:
+            errors["global_revision_group"] = "Une formule globale doit être sélectionnée."
+        if self.revision_application_mode == self.RevisionApplicationMode.PRICE_ASSIGNMENT and self.global_revision_group_id is not None:
+            errors["global_revision_group"] = "Un marché en affectation par prix ne peut pas avoir de formule globale."
+        if self.global_revision_group_id is not None:
+            group_market_id = RevisionGroup.objects.filter(pk=self.global_revision_group_id).values_list("market_id", flat=True).first()
+            if group_market_id is not None and group_market_id != self.pk:
+                errors["global_revision_group"] = "La formule globale doit appartenir au même marché."
         if errors:
             raise ValidationError(errors)
 
@@ -271,6 +304,140 @@ class MarketLot(models.Model):
 
     def __str__(self):
         return f"{self.market.market_number} — {self.lot_number}"
+
+
+class PriceScheduleQuerySet(models.QuerySet):
+    def delete(self, *args, **kwargs):
+        raise ProtectedError("Un bordereau ne peut pas être supprimé physiquement.", self)
+
+
+class PriceItemQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Les prix doivent être modifiés par leur service métier.")
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError("Les prix ne peuvent pas être modifiés en bulk.")
+
+    def bulk_create(self, objs, batch_size=None, ignore_conflicts=False, update_conflicts=False, update_fields=None, unique_fields=None):
+        raise ValidationError("Les prix doivent être créés par leur service métier.")
+
+    def delete(self, *args, **kwargs):
+        raise ProtectedError("Un prix ne peut pas être supprimé physiquement.", self)
+
+
+class PriceSchedule(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT", "Brouillon"
+        ACTIVE = "ACTIVE", "Actif"
+        ARCHIVED = "ARCHIVED", "Archivé"
+
+    class SourceType(models.TextChoices):
+        MANUAL = "MANUAL", "Saisie manuelle"
+        IMPORT = "IMPORT", "Import"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    market = models.OneToOneField(Market, on_delete=models.PROTECT, related_name="price_schedule")
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
+    source_type = models.CharField(max_length=20, choices=SourceType.choices, default=SourceType.MANUAL)
+    name = models.CharField(max_length=255, blank=True)
+    notes = models.TextField(blank=True)
+    change_version = models.PositiveIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    objects = PriceScheduleQuerySet.as_manager()
+
+    class Meta:
+        db_table = "markets_priceschedule"
+        constraints = [
+            models.CheckConstraint(condition=models.Q(change_version__gt=0), name="priceschedule_change_version_positive"),
+        ]
+
+    def delete(self, *args, **kwargs):
+        raise ProtectedError("Un bordereau ne peut pas être supprimé physiquement.", self)
+
+
+class PriceItem(models.Model):
+    class ClassificationStatus(models.TextChoices):
+        PENDING_CLASSIFICATION = "PENDING_CLASSIFICATION", "À classer"
+        REVISABLE = "REVISABLE", "Révisable"
+        NON_REVISABLE = "NON_REVISABLE", "Sans révision"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    price_schedule = models.ForeignKey(PriceSchedule, on_delete=models.PROTECT, related_name="items")
+    lot = models.ForeignKey(MarketLot, on_delete=models.PROTECT, null=True, blank=True, related_name="price_items")
+    price_number = models.CharField(max_length=120)
+    designation = models.TextField()
+    unit = models.CharField(max_length=80)
+    estimated_quantity = models.DecimalField(max_digits=18, decimal_places=6, validators=[MinValueValidator(Decimal("0"))])
+    unit_price_ht = models.DecimalField(max_digits=18, decimal_places=8, validators=[MinValueValidator(Decimal("0"))])
+    estimated_amount_ht = models.DecimalField(max_digits=18, decimal_places=2, validators=[MinValueValidator(Decimal("0"))])
+    revision_group = models.ForeignKey("RevisionGroup", on_delete=models.PROTECT, null=True, blank=True, related_name="price_items")
+    classification_status = models.CharField(max_length=30, choices=ClassificationStatus.choices, default=ClassificationStatus.PENDING_CLASSIFICATION)
+    active = models.BooleanField(default=True)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    objects = PriceItemQuerySet.as_manager()
+
+    class Meta:
+        db_table = "markets_priceitem"
+        ordering = ["price_number", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["price_schedule", "price_number"], name="uniq_priceitem_schedule_number"),
+            models.CheckConstraint(condition=models.Q(price_number__regex=r"\S"), name="priceitem_number_not_blank"),
+            models.CheckConstraint(condition=models.Q(designation__regex=r"\S"), name="priceitem_designation_not_blank"),
+            models.CheckConstraint(condition=models.Q(unit__regex=r"\S"), name="priceitem_unit_not_blank"),
+            models.CheckConstraint(condition=models.Q(estimated_quantity__gte=0), name="priceitem_quantity_nonnegative"),
+            models.CheckConstraint(condition=models.Q(unit_price_ht__gte=0), name="priceitem_unit_price_nonnegative"),
+            models.CheckConstraint(condition=models.Q(estimated_amount_ht__gte=0), name="priceitem_amount_nonnegative"),
+            models.CheckConstraint(
+                condition=(models.Q(classification_status="REVISABLE", revision_group__isnull=False) | models.Q(classification_status__in=["PENDING_CLASSIFICATION", "NON_REVISABLE"], revision_group__isnull=True)),
+                name="priceitem_classification_assignment_consistent",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["price_schedule", "classification_status"]),
+            models.Index(fields=["price_schedule", "revision_group"]),
+            models.Index(fields=["lot", "active"]),
+        ]
+
+    def clean(self):
+        errors = {}
+        if self.pk:
+            previous_schedule_id = type(self).objects.filter(pk=self.pk).values_list("price_schedule_id", flat=True).first()
+            if previous_schedule_id is not None and previous_schedule_id != self.price_schedule_id:
+                errors["price_schedule"] = "Le bordereau d'un prix est immuable."
+        self.price_number = self.price_number.strip()
+        self.designation = self.designation.strip()
+        self.unit = self.unit.strip()
+        if not self.price_number:
+            errors["price_number"] = "Le numéro de prix est obligatoire."
+        if not self.designation:
+            errors["designation"] = "La désignation est obligatoire."
+        if not self.unit:
+            errors["unit"] = "L'unité est obligatoire."
+        if self.classification_status == self.ClassificationStatus.REVISABLE and self.revision_group_id is None:
+            errors["revision_group"] = "Un prix révisable doit être affecté à une formule."
+        if self.classification_status != self.ClassificationStatus.REVISABLE and self.revision_group_id is not None:
+            errors["revision_group"] = "Un prix non classé ou sans révision ne peut pas être affecté à une formule."
+        market_id = self.price_schedule.market_id if self.price_schedule_id and hasattr(self, "price_schedule") else PriceSchedule.objects.filter(pk=self.price_schedule_id).values_list("market_id", flat=True).first()
+        if self.lot_id is not None:
+            lot_market_id = MarketLot.objects.filter(pk=self.lot_id).values_list("market_id", flat=True).first()
+            if lot_market_id is not None and market_id is not None and lot_market_id != market_id:
+                errors["lot"] = "Le lot doit appartenir au même marché que le prix."
+        if self.revision_group_id is not None:
+            group_market_id = RevisionGroup.objects.filter(pk=self.revision_group_id).values_list("market_id", flat=True).first()
+            if group_market_id is not None and market_id is not None and group_market_id != market_id:
+                errors["revision_group"] = "La formule doit appartenir au même marché que le prix."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ProtectedError("Un prix ne peut pas être supprimé physiquement.", self)
 
 
 class RevisionGroup(models.Model):

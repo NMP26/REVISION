@@ -12,7 +12,129 @@ from rest_framework.test import APIClient
 from companies.models import Company, Membership
 from consortia.models import Consortium, ConsortiumMember
 
-from .models import FormulaTemplate, FormulaTemplateTerm, FormulaTerm, Market, MarketFormula, MarketLot, RevisionGroup
+from .models import FormulaTemplate, FormulaTemplateTerm, FormulaTerm, Market, MarketFormula, MarketLot, PriceItem, PriceSchedule, RevisionGroup
+
+
+class Lot2BApiTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.owner = user_model.objects.create_user("lot2b-owner@example.com", "password-123")
+        self.admin = user_model.objects.create_user("lot2b-admin@example.com", "password-123")
+        self.member = user_model.objects.create_user("lot2b-member@example.com", "password-123")
+        self.company = Company.objects.create(raison_sociale="LOT2B Company")
+        self.other_company = Company.objects.create(raison_sociale="LOT2B Other")
+        Membership.objects.create(user=self.owner, company=self.company, role=Membership.Role.OWNER)
+        Membership.objects.create(user=self.admin, company=self.company, role=Membership.Role.ADMIN)
+        Membership.objects.create(user=self.member, company=self.company, role=Membership.Role.MEMBER)
+        self.market = Market.objects.create(company=self.company, market_number="LOT2B-001", contracting_authority="Commune", subject="Travaux", formula_structure=Market.FormulaStructure.SINGLE)
+        self.other_market = Market.objects.create(company=self.other_company, market_number="LOT2B-001", contracting_authority="Commune", subject="Autres travaux", formula_structure=Market.FormulaStructure.SINGLE)
+        self.group = RevisionGroup.objects.create(market=self.market, code="F1", name="Formule 1")
+        self.other_group = RevisionGroup.objects.create(market=self.other_market, code="F1", name="Formule autre")
+        self.formula = MarketFormula.objects.create(revision_group=self.group, version_number=1, label="BAT3", constant_term=Decimal("0.15"), created_by=self.owner)
+        self.client = APIClient(); self.client.force_authenticate(self.owner)
+
+    def item_payload(self, **extra):
+        payload = {"price_number": "00001", "designation": "Câble HTA", "unit": "ml", "estimated_quantity": "10.000000", "unit_price_ht": "12.50000000", "estimated_amount_ht": "125.00"}
+        payload.update(extra)
+        return payload
+
+    def test_global_formula_without_bdp_is_accepted(self):
+        response = self.client.patch(f"/api/markets/{self.market.id}/revision-application/", {"revision_application_mode": "GLOBAL_FORMULA", "global_revision_group": str(self.group.id)}, format="json")
+        self.assertEqual(response.status_code, 200, getattr(response, "data", response.content))
+        self.assertEqual(response.data["revision_application_mode"], "GLOBAL_FORMULA")
+        schedule = self.client.get(f"/api/markets/{self.market.id}/price-schedule/")
+        self.assertEqual(schedule.status_code, 200)
+        self.assertFalse(schedule.data["required"])
+        self.assertIsNone(schedule.data["schedule"])
+
+    def test_global_formula_requires_exactly_one_applicable_formula(self):
+        RevisionGroup.objects.get(pk=self.group.pk).formulas.create(
+            version_number=2,
+            label="BAT3 v2",
+            constant_term=Decimal("0.20"),
+            created_by=self.owner,
+        )
+        response = self.client.patch(
+            f"/api/markets/{self.market.id}/revision-application/",
+            {"revision_application_mode": "GLOBAL_FORMULA", "global_revision_group": str(self.group.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_mode_transitions_preserve_schedule_and_refuse_conflicting_global_transition(self):
+        schedule = self.client.post(f"/api/markets/{self.market.id}/price-schedule/", {}, format="json")
+        item = self.client.post(f"/api/markets/{self.market.id}/price-schedule/items/", self.item_payload(), format="json")
+        self.assertEqual(schedule.status_code, 201)
+        self.assertEqual(item.status_code, 201)
+        global_response = self.client.patch(
+            f"/api/markets/{self.market.id}/revision-application/",
+            {"revision_application_mode": "GLOBAL_FORMULA", "global_revision_group": str(self.group.id)},
+            format="json",
+        )
+        self.assertEqual(global_response.status_code, 400)
+        self.assertTrue(PriceSchedule.objects.filter(pk=schedule.data["id"]).exists())
+        self.assertTrue(PriceItem.objects.filter(pk=item.data["id"]).exists())
+
+    def test_bulk_assignment_is_atomic_and_accepts_canonical_uppercase_actions(self):
+        self.client.post(f"/api/markets/{self.market.id}/price-schedule/", {}, format="json")
+        first = self.client.post(f"/api/markets/{self.market.id}/price-schedule/items/", self.item_payload(), format="json")
+        second = self.client.post(f"/api/markets/{self.market.id}/price-schedule/items/", self.item_payload(price_number="00002"), format="json")
+        self.client.patch(f"/api/markets/{self.market.id}/price-schedule/items/{second.data['id']}/", {"classification_status": "NON_REVISABLE"}, format="json")
+        response = self.client.post(
+            f"/api/markets/{self.market.id}/price-schedule/assignments/",
+            {"action": "ASSIGN", "revision_group_id": str(self.group.id), "price_item_ids": [first.data["id"], second.data["id"]]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(PriceItem.objects.get(pk=first.data["id"]).revision_group_id)
+
+    def test_admin_can_manage_and_member_cannot_change_individual_price(self):
+        schedule = self.client.post(f"/api/markets/{self.market.id}/price-schedule/", {}, format="json")
+        item = self.client.post(f"/api/markets/{self.market.id}/price-schedule/items/", self.item_payload(), format="json")
+        admin = APIClient(); admin.force_authenticate(self.admin)
+        member = APIClient(); member.force_authenticate(self.member)
+        self.assertEqual(admin.patch(f"/api/markets/{self.market.id}/price-schedule/items/{item.data['id']}/", {"designation": "Administré"}, format="json").status_code, 200)
+        self.assertEqual(member.patch(f"/api/markets/{self.market.id}/price-schedule/items/{item.data['id']}/", {"designation": "Interdit"}, format="json").status_code, 403)
+
+    def test_price_assignment_requires_bdp_and_assignment_is_exclusive(self):
+        schedule = self.client.post(f"/api/markets/{self.market.id}/price-schedule/", {}, format="json")
+        self.assertEqual(schedule.status_code, 201)
+        first = self.client.post(f"/api/markets/{self.market.id}/price-schedule/items/", self.item_payload(), format="json")
+        self.assertEqual(first.status_code, 201)
+        second_group = RevisionGroup.objects.create(market=self.market, code="F2", name="Formule 2")
+        assigned = self.client.post(f"/api/markets/{self.market.id}/price-schedule/assignments/", {"action": "assign", "revision_group_id": str(self.group.id), "price_item_ids": [first.data["id"]]}, format="json")
+        self.assertEqual(assigned.status_code, 200)
+        changed = self.client.post(f"/api/markets/{self.market.id}/price-schedule/assignments/", {"action": "assign", "revision_group_id": str(second_group.id), "price_item_ids": [first.data["id"]], "expected_version": assigned.data["change_version"]}, format="json")
+        self.assertEqual(changed.status_code, 200)
+        item = PriceItem.objects.get(pk=first.data["id"])
+        self.assertEqual(item.revision_group_id, second_group.id)
+        self.assertEqual(item.classification_status, PriceItem.ClassificationStatus.REVISABLE)
+
+    def test_non_revisable_is_explicit_and_cannot_be_assigned(self):
+        self.client.post(f"/api/markets/{self.market.id}/price-schedule/", {}, format="json")
+        item = self.client.post(f"/api/markets/{self.market.id}/price-schedule/items/", self.item_payload(), format="json")
+        self.assertEqual(item.status_code, 201)
+        updated = self.client.patch(f"/api/markets/{self.market.id}/price-schedule/items/{item.data['id']}/", {"classification_status": "NON_REVISABLE"}, format="json")
+        self.assertEqual(updated.status_code, 200)
+        rejected = self.client.post(f"/api/markets/{self.market.id}/price-schedule/assignments/", {"action": "assign", "revision_group_id": str(self.group.id), "price_item_ids": [item.data["id"]]}, format="json")
+        self.assertEqual(rejected.status_code, 400)
+        self.assertEqual(PriceItem.objects.get(pk=item.data["id"]).revision_group_id, None)
+
+    def test_cross_market_group_and_float_are_rejected(self):
+        self.client.post(f"/api/markets/{self.market.id}/price-schedule/", {}, format="json")
+        float_item = self.client.post(f"/api/markets/{self.market.id}/price-schedule/items/", self.item_payload(estimated_quantity=10.5), format="json")
+        self.assertEqual(float_item.status_code, 400)
+        item = self.client.post(f"/api/markets/{self.market.id}/price-schedule/items/", self.item_payload(), format="json")
+        self.assertEqual(item.status_code, 201)
+        cross_market = self.client.post(f"/api/markets/{self.market.id}/price-schedule/assignments/", {"action": "assign", "revision_group_id": str(self.other_group.id), "price_item_ids": [item.data["id"]]}, format="json")
+        self.assertEqual(cross_market.status_code, 400)
+
+    def test_member_is_read_only_and_market_isolation_is_preserved(self):
+        self.client.post(f"/api/markets/{self.market.id}/price-schedule/", {}, format="json")
+        member = APIClient(); member.force_authenticate(self.member)
+        self.assertEqual(member.get(f"/api/markets/{self.market.id}/price-schedule/").status_code, 200)
+        self.assertEqual(member.post(f"/api/markets/{self.market.id}/price-schedule/items/", self.item_payload(), format="json").status_code, 403)
+        self.assertEqual(self.client.get(f"/api/markets/{self.other_market.id}/price-schedule/").status_code, 404)
 
 
 class MarketApiTests(TestCase):

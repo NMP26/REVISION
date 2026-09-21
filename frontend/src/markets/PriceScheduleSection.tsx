@@ -1,0 +1,21 @@
+import { useEffect, useState } from 'react'
+import { ApiError, PriceItem, PriceMatrix, PriceSchedule, assignPriceItems, createPriceSchedule, getPriceMatrix, getPriceSchedule } from '../lib/api'
+
+type Props = { marketId: string; role: string | null | undefined; mode?: 'GLOBAL_FORMULA' | 'PRICE_ASSIGNMENT' }
+const canEdit = (role: string | null | undefined) => role === 'OWNER' || role === 'ADMIN'
+const message = (error: unknown) => error instanceof ApiError ? error.payload.message : 'Erreur réseau. Réessayez.'
+
+export function PriceScheduleSection({ marketId, role, mode }: Props) {
+  const [schedule, setSchedule] = useState<PriceSchedule | null>(null); const [matrix, setMatrix] = useState<PriceMatrix | null>(null); const [error, setError] = useState(''); const [loading, setLoading] = useState(false); const [busy, setBusy] = useState(false)
+  const editable = canEdit(role)
+  const load = async () => { if (mode !== 'PRICE_ASSIGNMENT') return; setLoading(true); setError(''); try { const status = await getPriceSchedule(marketId); setSchedule(status.schedule); if (status.schedule) setMatrix(await getPriceMatrix(marketId)) } catch (caught) { setError(message(caught)) } finally { setLoading(false) } }
+  useEffect(() => { void load() }, [marketId, mode])
+  if (mode !== 'PRICE_ASSIGNMENT') return null
+  const ensureSchedule = async () => { setBusy(true); setError(''); try { const created = await createPriceSchedule(marketId); setSchedule(created); setMatrix(await getPriceMatrix(marketId)) } catch (caught) { setError(message(caught)) } finally { setBusy(false) } }
+  const assign = async (item: PriceItem, groupId: string | null) => { if (!matrix || !schedule) return; setBusy(true); try { await assignPriceItems(marketId, { action: groupId ? 'ASSIGN' : 'NON_REVISABLE', revision_group_id: groupId, price_item_ids: [item.id], expected_version: schedule.change_version }); await load() } catch (caught) { setError(message(caught)) } finally { setBusy(false) } }
+  const bulkAssign = async (groupId: string, action: 'ASSIGN' | 'UNASSIGN') => { if (!schedule) return; setBusy(true); try { await assignPriceItems(marketId, { action, revision_group_id: action === 'ASSIGN' ? groupId : null, filter: action === 'UNASSIGN' ? { revision_group_id: groupId } : {}, expected_version: schedule.change_version }); await load() } catch (caught) { setError(message(caught)) } finally { setBusy(false) } }
+  return <section aria-label="Bordereau des prix"><div className="section-heading"><div><p className="eyebrow">BORDEREAU DES PRIX</p><h2>Affectation des prix</h2></div>{editable && !schedule && <button className="primary" disabled={busy} onClick={() => void ensureSchedule()}>Créer le bordereau</button>}</div>
+    {error && <div className="alert error" role="alert">{error}</div>}{loading && <p className="state">Chargement…</p>}{!schedule && !loading && <div className="card state">Le BDP est nécessaire pour l'affectation prix par prix.</div>}
+    {matrix && <div className="card table-scroll"><table><thead><tr><th>N° prix</th><th>Désignation</th>{matrix.formulas.map((group) => <th key={group.id}>{group.name}{editable && <div className="inline-actions"><button type="button" className="link-button" disabled={busy} onClick={() => void bulkAssign(group.id, 'ASSIGN')}>Tout sélectionner</button><button type="button" className="link-button" disabled={busy} onClick={() => void bulkAssign(group.id, 'UNASSIGN')}>Tout désélectionner</button></div>}</th>)}<th>Sans révision</th></tr></thead><tbody>{matrix.items.map((item) => <tr key={item.id}><td>{item.price_number}</td><td>{item.designation}</td>{matrix.formulas.map((group) => <td key={group.id}><input type="radio" name={`price-${item.id}`} aria-label={group.name} disabled={!editable || busy || item.classification_status === 'NON_REVISABLE'} checked={item.revision_group === group.id} onChange={() => void assign(item, group.id)} /></td>)}<td><input type="radio" name={`price-${item.id}`} aria-label="Sans révision" disabled={!editable || busy} checked={item.classification_status === 'NON_REVISABLE' || item.revision_group === null} onChange={() => void assign(item, null)} /></td></tr>)}</tbody></table>{matrix.items.length === 0 && <p className="state">Aucun prix dans le bordereau.</p>}</div>}
+  </section>
+}

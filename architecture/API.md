@@ -1,6 +1,6 @@
-STATUS: LOT 1B APPROVED — LOT 2A FROZEN v0.6.0
-IMPLEMENTATION: LOT 1B IMPLEMENTED ; LOT 2A IMPLEMENTED — TESTED — FROZEN v0.6.0
-SOURCE: specs/02-marches.md, specs/03-formules.md, ADR-LOT2A-001
+STATUS: LOT 1B APPROVED — LOT 2A/2A.1 FROZEN — LOT 2B DESIGN APPROVED
+IMPLEMENTATION: LOT 1B IMPLEMENTED ; LOT 2A/2A.1 IMPLEMENTED — TESTED ; LOT 2B IMPLEMENTED LOCALLY — FINAL REAUDIT REQUIRED
+SOURCE: specs/02-marches.md, specs/03-formules.md, specs/04-bordereau-prix.md, ADR-LOT2A-001, ADR-LOT2B-001..005
 
 # API LOT 1B — contrat implémenté
 
@@ -86,3 +86,63 @@ ultérieur ; aucune route ne doit exposer une modification d'une version
 - `GET/POST /api/consortia/` : lecture des groupements accessibles et création par un OWNER/ADMIN de la société dossier.
 - `GET/PATCH /api/consortia/<id>/` : lecture et gestion contrôlée des membres actifs.
 - `Market` expose `holder_type`, `holder_company`, `consortium` et les résumés associés ; `contracting_authority` reste disponible pendant la transition.
+
+## API LOT 2B — contrat approuvé, non implémenté
+
+Les routes suivantes sont proposées pour un marché accessible :
+
+- `GET /api/markets/{market_id}/price-schedule/` : bordereau et compteurs ;
+- `POST /api/markets/{market_id}/price-schedule/` : créer explicitement le
+  bordereau, sans ligne implicite ;
+- `GET /api/markets/{market_id}/price-schedule/items/` : liste paginée,
+  recherche `price_number`/`designation`, filtres `lot`, `revision_group`,
+  `without_formula`, `classification_status` ;
+- `POST /api/markets/{market_id}/price-schedule/items/` et
+  `PATCH /api/markets/{market_id}/price-schedule/items/{item_id}/` : saisie
+  et mutation contrôlées ;
+- `POST /api/markets/{market_id}/price-schedule/assignments/` : affectation
+  ou désaffectation bulk transactionnelle ;
+- `GET /api/markets/{market_id}/price-schedule/matrix/` : projection optimisée
+  pour la matrice, avec formules visibles et compteurs.
+
+Le payload bulk proposé est :
+
+```json
+{
+  "action": "ASSIGN",
+  "revision_group_id": "uuid",
+  "price_item_ids": ["uuid"],
+  "filter": null,
+  "expected_version": 1
+}
+```
+
+Les actions canoniques sont `ASSIGN`, `UNASSIGN` et `NON_REVISABLE`.
+`action=UNASSIGN` exige le groupe ciblé ou une sélection explicite et remet
+`revision_group` à `null`; aucune autre formule n'est choisie. `price_item_ids`
+et `filter` sont mutuellement exclusifs. Le serveur vérifie tous les IDs
+contre le marché, verrouille les lignes avec `select_for_update`, applique
+une seule mutation et renvoie les compteurs avant/après. Le frontend ne doit
+pas simuler ce comportement par une série de PATCH.
+
+Les réponses exposent `market` en lecture seule, `lot`, `price_number` comme
+chaîne, les valeurs Decimal comme chaînes JSON, `revision_formula` comme
+libellé public du `RevisionGroup`, `revision_group_id` pour l'usage interne,
+`classification_status`, `active` et les compteurs. Les mutations sont
+OWNER/ADMIN ; MEMBER est en lecture seule. Les erreurs d'un lot ou groupe
+d'un autre marché sont génériques et ne doivent pas révéler une ressource
+étrangère.
+
+La mutation impose aussi la cohérence suivante : `REVISABLE` exige un
+`revision_group_id`, `NON_REVISABLE` exige `null`, et
+`PENDING_CLASSIFICATION` interdit toute affectation définitive. Les prix
+`PENDING_CLASSIFICATION` ne peuvent pas être utilisés silencieusement dans
+un calcul ou une validation. Le service/backend est la garantie obligatoire
+de la cohérence inter-tables ; une contrainte PostgreSQL additionnelle reste
+conditionnée à une implémentation techniquement correcte et ne sera pas
+simulée par un `CHECK` impossible à exprimer.
+
+L'import futur aura ses endpoints propres sous un espace
+`/api/markets/{market_id}/price-schedule/imports/` et suivra upload,
+mapping, aperçu, validation puis import. Aucun endpoint d'import n'est
+implémenté dans le LOT 2B de conception.
