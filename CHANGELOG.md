@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.7.1 — Corrections workflow LOT 2B multi-formules
+
+- Clarification du workflow « formule unique » / « plusieurs formules ».
+- BDP préalable obligatoire en mode plusieurs formules.
+- Page dédiée d'affectation formule ↔ prix après disponibilité du BDP.
+- Affichage du code et de l'expression mathématique complète des formules.
+- Protection frontend/backend contre la double affectation d'un prix.
+- Gestion explicite de `PENDING_CLASSIFICATION` et `NON_REVISABLE`.
+- Saisie manuelle et import CSV du BDP via les modèles et API LOT 2B existants.
+- Garde backend du mode `PRICE_ASSIGNMENT` et tests de régression LOT 2B.
+- Aucune migration, donnée métier de production ou mise en production.
+
 ## v0.7.0 — LOT 2B Bordereau et affectation aux formules
 
 - `PriceSchedule` et `PriceItem` avec numéro opaque, valeurs Decimal, lot

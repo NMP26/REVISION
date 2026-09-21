@@ -203,3 +203,6 @@ export function getPriceMatrix(marketId: string) { return api<PriceMatrix>(`/mar
 export function assignPriceItems(marketId: string, data: Record<string, unknown>) {
   return api<{ updated: number; change_version: number }>(`/markets/${marketId}/price-schedule/assignments/`, { method: 'POST', body: JSON.stringify(data) })
 }
+export function validatePriceAssignment(marketId: string, expectedVersion?: number) {
+  return api<{ validated: boolean; price_count: number; change_version: number }>(`/markets/${marketId}/price-schedule/assignments/`, { method: 'POST', body: JSON.stringify({ action: 'VALIDATE', expected_version: expectedVersion }) })
+}

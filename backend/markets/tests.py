@@ -47,6 +47,12 @@ class Lot2BApiTests(TestCase):
         self.assertFalse(schedule.data["required"])
         self.assertIsNone(schedule.data["schedule"])
 
+    def test_assignment_endpoint_rejects_global_formula_mode(self):
+        response = self.client.patch(f"/api/markets/{self.market.id}/revision-application/", {"revision_application_mode": "GLOBAL_FORMULA", "global_revision_group": str(self.group.id)}, format="json")
+        self.assertEqual(response.status_code, 200)
+        rejected = self.client.post(f"/api/markets/{self.market.id}/price-schedule/assignments/", {"action": "VALIDATE"}, format="json")
+        self.assertEqual(rejected.status_code, 400)
+
     def test_global_formula_requires_exactly_one_applicable_formula(self):
         RevisionGroup.objects.get(pk=self.group.pk).formulas.create(
             version_number=2,
@@ -96,7 +102,7 @@ class Lot2BApiTests(TestCase):
         self.assertEqual(admin.patch(f"/api/markets/{self.market.id}/price-schedule/items/{item.data['id']}/", {"designation": "Administré"}, format="json").status_code, 200)
         self.assertEqual(member.patch(f"/api/markets/{self.market.id}/price-schedule/items/{item.data['id']}/", {"designation": "Interdit"}, format="json").status_code, 403)
 
-    def test_price_assignment_requires_bdp_and_assignment_is_exclusive(self):
+    def test_price_assignment_requires_bdp_and_rejects_double_assignment(self):
         schedule = self.client.post(f"/api/markets/{self.market.id}/price-schedule/", {}, format="json")
         self.assertEqual(schedule.status_code, 201)
         first = self.client.post(f"/api/markets/{self.market.id}/price-schedule/items/", self.item_payload(), format="json")
@@ -105,10 +111,20 @@ class Lot2BApiTests(TestCase):
         assigned = self.client.post(f"/api/markets/{self.market.id}/price-schedule/assignments/", {"action": "assign", "revision_group_id": str(self.group.id), "price_item_ids": [first.data["id"]]}, format="json")
         self.assertEqual(assigned.status_code, 200)
         changed = self.client.post(f"/api/markets/{self.market.id}/price-schedule/assignments/", {"action": "assign", "revision_group_id": str(second_group.id), "price_item_ids": [first.data["id"]], "expected_version": assigned.data["change_version"]}, format="json")
-        self.assertEqual(changed.status_code, 200)
+        self.assertEqual(changed.status_code, 400)
         item = PriceItem.objects.get(pk=first.data["id"])
-        self.assertEqual(item.revision_group_id, second_group.id)
+        self.assertEqual(item.revision_group_id, self.group.id)
         self.assertEqual(item.classification_status, PriceItem.ClassificationStatus.REVISABLE)
+
+    def test_price_assignment_validation_requires_every_price_to_be_decided(self):
+        self.client.post(f"/api/markets/{self.market.id}/price-schedule/", {}, format="json")
+        item = self.client.post(f"/api/markets/{self.market.id}/price-schedule/items/", self.item_payload(), format="json")
+        response = self.client.post(f"/api/markets/{self.market.id}/price-schedule/assignments/", {"action": "VALIDATE"}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.client.post(f"/api/markets/{self.market.id}/price-schedule/assignments/", {"action": "ASSIGN", "revision_group_id": str(self.group.id), "price_item_ids": [item.data["id"]]}, format="json")
+        response = self.client.post(f"/api/markets/{self.market.id}/price-schedule/assignments/", {"action": "VALIDATE"}, format="json")
+        self.assertEqual(response.status_code, 200, getattr(response, "data", response.content))
+        self.assertTrue(response.data["validated"])
 
     def test_non_revisable_is_explicit_and_cannot_be_assigned(self):
         self.client.post(f"/api/markets/{self.market.id}/price-schedule/", {}, format="json")

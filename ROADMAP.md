@@ -10,7 +10,7 @@
 | LOT 1C | Groupements / Autorités / RC City | GELÉ — v0.5.1 |
 | LOT 2A | Formules contractuelles | IMPLEMENTED — TESTED — FROZEN v0.6.0 |
 | LOT 2A.1 | Bibliothèque des modèles de formules | FROZEN — v0.6.1 |
-| LOT 2B | Bordereau et affectation aux formules | FROZEN — v0.7.0 |
+| LOT 2B | Bordereau et affectation aux formules | FROZEN — v0.7.1 |
 | LOT 3 | Exécution / Décomptes | BLOQUE |
 | LOT 4 | Moteur de révision | BLOQUE |
 | LOT 5 | Validation / Snapshots | BLOQUE |
@@ -44,7 +44,7 @@ exact d'arrondi de
 versionnage ou l'UI des formules, mais bloque une sortie réglementaire
 définitive qui en dépend.
 
-LOT 2B est implémenté, testé, validé et gelé en v0.7.0. Le
+LOT 2B est implémenté, testé, validé et gelé en v0.7.1. Le
 plan distingue explicitement
 `GLOBAL_FORMULA`, où le BDP n'est pas obligatoire pour la révision, et
 `PRICE_ASSIGNMENT`, où le BDP est requis pour les affectations par prix.
@@ -57,9 +57,9 @@ bulk transactionnelles. Le plan prévoit des phases séparées pour le modèle,
 les services/API, l'UX des templates, l'import, le BDP, la matrice et
 l'audit final a validé la migration additive `0006` dans un PostgreSQL de
 test isolé, depuis zéro et depuis le schéma `0005`. La migration et le code
-LOT 2B sont gelés dans le candidat v0.7.0 ; aucune donnée de production ni
-aucun déploiement n'a été effectué. L'import Excel/CSV complet reste une
-limitation explicitement hors périmètre.
+LOT 2B sont gelés dans le candidat v0.7.1 ; aucune donnée de production ni
+aucun déploiement n'a été effectué. Le parcours correctif fournit la saisie
+manuelle et l'import CSV du BDP ; aucun import Excel avancé n'est ajouté.
 
 LOT 2A.1 est le lot indépendant de bibliothèque situé entre LOT 2A et LOT
 2B, gelé en v0.6.1 après implémentation, tests et réaudit final réussis. Il

@@ -1,4 +1,4 @@
-STATUS: IMPLEMENTED — TESTED — VALIDATED — FROZEN v0.7.0
+STATUS: IMPLEMENTED — TESTED — VALIDATED — FROZEN v0.7.1
 LOT: LOT 2B — Bordereau des prix et affectation aux formules
 DEPENDENCY: LOT 2A v0.6.0; LOT 2A.1 v0.6.1; ADR-LOT2B-001..006 accepted
 IMPLEMENTATION: IMPLEMENTED / TESTED / VALIDATED; NO DEPLOYMENT INCLUDED
@@ -7,7 +7,7 @@ PRODUCTION: v0.6.1 unchanged
 # Plan d'implémentation LOT 2B
 
 Ce document demeure le contrat de périmètre technique. L'implémentation
-LOT 2B est gelée dans le candidat v0.7.0 : aucune donnée de production,
+LOT 2B est gelée dans le candidat v0.7.1 : aucune donnée de production,
 migration de production ou mise en production n'est incluse.
 
 ## 0 bis. État d'implémentation et validation
@@ -15,8 +15,8 @@ migration de production ou mise en production n'est incluse.
 Les phases modèle, services/API, UX des formules et matrice BDP prévues
 ci-dessous sont implémentées et validées. La migration `0006` est additive et
 a été appliquée uniquement à des bases PostgreSQL de test éphémères, depuis
-zéro et depuis le schéma `0005`. L'import Excel/CSV complet reste hors
-périmètre ; il n'est pas déclaré implémenté par LOT 2B.
+zéro et depuis le schéma `0005`. L'import Excel avancé reste hors périmètre ;
+le parcours correctif v0.7.1 fournit la saisie manuelle et l'import CSV du BDP.
 
 ## 1. Constat de l'architecture existante
 
@@ -454,7 +454,7 @@ Aucune décision métier supplémentaire n'est requise : classification,
 cardinalité, unicité marché, UX template, Decimal, snapshots et permissions
 sont déjà approuvés par les ADR LOT2B-001 à LOT2B-005.
 
-Le réaudit final est accepté. Le gel v0.7.0 autorise le commit, le tag et le
+Le réaudit final est accepté. Le gel v0.7.1 autorise le commit, le tag et le
 push contrôlés ; il n'autorise ni migration production ni déploiement et ne
 permet pas de commencer LOT 2C, les décomptes, les révisions ou le moteur
 final de calcul.
@@ -465,7 +465,7 @@ final de calcul.
 - code frontend LOT 2B : implémenté et validé ;
 - migration 0006 : créée, testée hors production ;
 - production modifiée : non ;
-- commit/push/tag : autorisés par le gel v0.7.0 ;
+- commit/push/tag : autorisés par le gel v0.7.1 ;
 - déploiement : non.
 
 Après approbation, chaque sous-phase devra être livrée et contrôlée

@@ -121,8 +121,10 @@ def bulk_assign_price_items(*, market, action, revision_group_id=None, price_ite
     if expected_version is not None and schedule.change_version != expected_version:
         raise ValidationError({"expected_version": "Le bordereau a changé. Rechargez la matrice."})
     action = str(action or "").upper()
+    if action == "VALIDATE":
+        return validate_price_assignment(market=market, schedule=schedule)
     if action not in {"ASSIGN", "UNASSIGN", "NON_REVISABLE"}:
-        raise ValidationError({"action": "L'action doit être ASSIGN, UNASSIGN ou NON_REVISABLE."})
+        raise ValidationError({"action": "L'action doit être ASSIGN, UNASSIGN, NON_REVISABLE ou VALIDATE."})
 
     group = None
     if action == "ASSIGN":
@@ -154,6 +156,11 @@ def bulk_assign_price_items(*, market, action, revision_group_id=None, price_ite
     if not selected:
         return {"updated": 0, "change_version": schedule.change_version}
 
+    if action == "ASSIGN":
+        conflicting = [item.price_number for item in selected if item.revision_group_id and item.revision_group_id != group.id]
+        if conflicting:
+            raise ValidationError({"price_items": f"Les prix {', '.join(conflicting)} sont déjà affectés à une autre formule."})
+
     for item in selected:
         if action == "ASSIGN":
             if item.classification_status == PriceItem.ClassificationStatus.NON_REVISABLE:
@@ -171,3 +178,25 @@ def bulk_assign_price_items(*, market, action, revision_group_id=None, price_ite
     schedule.change_version += 1
     schedule.save(update_fields=["change_version", "updated_at"])
     return {"updated": len(selected), "change_version": schedule.change_version}
+
+
+def validate_price_assignment(*, market, schedule=None):
+    schedule = schedule or PriceSchedule.objects.filter(market=market).first()
+    if schedule is None:
+        raise ValidationError({"price_schedule": "Un bordereau est nécessaire pour valider l'affectation."})
+
+    items = list(schedule.items.select_related("revision_group").all())
+    if not items:
+        raise ValidationError({"price_items": "Le bordereau doit contenir au moins un prix."})
+
+    pending = [item.price_number for item in items if item.classification_status == PriceItem.ClassificationStatus.PENDING_CLASSIFICATION]
+    unassigned = [item.price_number for item in items if item.classification_status == PriceItem.ClassificationStatus.REVISABLE and item.revision_group_id is None]
+    if pending or unassigned:
+        labels = pending + unassigned
+        raise ValidationError({"price_items": f"Les prix suivants restent à classer ou à affecter : {', '.join(labels)}."})
+
+    invalid_groups = [item.price_number for item in items if item.classification_status == PriceItem.ClassificationStatus.REVISABLE and (item.revision_group is None or not item.revision_group.active or not item.revision_group.formulas.exclude(status=MarketFormula.Status.INACTIVE).exists())]
+    if invalid_groups:
+        raise ValidationError({"price_items": f"Les prix suivants sont liés à une formule indisponible : {', '.join(invalid_groups)}."})
+
+    return {"validated": True, "price_count": len(items), "change_version": schedule.change_version}

@@ -173,10 +173,10 @@ Exigence → ADR → Spec → Code → Migration → Test → Version
 | OPS-002 | Aucun lot suivant ne démarre sans autorisation explicite et traçabilité. | Cahier cumulatif §18 | ADR-GOV-015 | plans/MASTER_PLAN.md | gouvernance | — | revue documentaire | APPROVED | GOV-1.1 |
 | OPS-003 | Les données saisies en production sont persistantes. Un déploiement, rebuild, upgrade ou migration ne doit jamais entraîner leur suppression ou leur réinitialisation. | Exigence audit persistance production | ADR-GOV-016 | architecture/DEPLOYMENT.md; docs/OPERATIONS.md; docs/MIGRATION.md; docs/BACKUP_RESTORE.md | compose.yaml; scripts/backup.sh; Makefile | — | make backup; make doctor; vérification volumes; test down/up documenté | VALIDATED | v0.4.1 |
 
-## LOT 2B — exigences validées et gel v0.7.0
+## LOT 2B — exigences validées et gel v0.7.1
 
 Ces exigences sont implémentées, testées et validées dans le candidat
-v0.7.0. La preuve de migration couvre une base vide et une base au schéma
+v0.7.1. La preuve de migration couvre une base vide et une base au schéma
 `0005`, exclusivement dans PostgreSQL de test isolé. Les lignes de
 conception ci-dessous sont complétées par la preuve d'implémentation locale
 et le réaudit final.

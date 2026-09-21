@@ -1,35 +1,29 @@
 import { useEffect, useState } from 'react'
-import { ApiError, RevisionApplication, RevisionGroup, getRevisionApplication, listRevisionGroups, saveRevisionApplication } from '../lib/api'
+import { ApiError, FormulaTemplate, MarketFormula, RevisionApplication, RevisionGroup, copyFormulaTemplate, getRevisionApplication, listFormulaTemplates, listRevisionGroups, saveRevisionApplication, saveRevisionGroup } from '../lib/api'
 
-type Props = { marketId: string; role: string | null | undefined; initialMode?: RevisionApplication['revision_application_mode'] }
+type Props = { marketId: string; role: string | null | undefined; initialMode?: RevisionApplication['revision_application_mode']; onModeChange?: (mode: RevisionApplication['revision_application_mode']) => void }
 const canEdit = (role: string | null | undefined) => role === 'OWNER' || role === 'ADMIN'
 const message = (error: unknown) => error instanceof ApiError ? error.payload.message : 'Erreur réseau. Réessayez.'
 
-export function RevisionApplicationSection({ marketId, role, initialMode }: Props) {
-  const [application, setApplication] = useState<RevisionApplication | null>(null)
-  const [groups, setGroups] = useState<RevisionGroup[]>([])
-  const [mode, setMode] = useState<RevisionApplication['revision_application_mode']>(initialMode ?? 'PRICE_ASSIGNMENT')
-  const [groupId, setGroupId] = useState(''); const [loading, setLoading] = useState(Boolean(initialMode)); const [saving, setSaving] = useState(false); const [error, setError] = useState('')
+function FormulaCatalog({ marketId, groups, editable, onSelected }: { marketId: string; groups: RevisionGroup[]; editable: boolean; onSelected: (group: RevisionGroup, formula: MarketFormula) => void }) {
+  const [query, setQuery] = useState(''); const [templates, setTemplates] = useState<FormulaTemplate[]>([]); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(''); const [error, setError] = useState('')
+  const load = () => { setLoading(true); listFormulaTemplates(query).then(setTemplates).catch((caught) => setError(message(caught))).finally(() => setLoading(false)) }
+  useEffect(() => { load() }, [])
+  const select = async (template: FormulaTemplate) => { setBusy(template.id); setError(''); try { const group = await saveRevisionGroup(marketId, { code: `GLOBAL-${Date.now()}`, name: template.designation, sort_order: groups.length }); const formula = await copyFormulaTemplate(marketId, group.id, template.id); onSelected(group, formula) } catch (caught) { setError(message(caught)) } finally { setBusy('') } }
+  return <div className="formula-catalog card company-form" aria-label="Catalogue universel des formules"><h3>Choisir une formule dans le catalogue universel</h3><p className="muted">Vérifiez que la formule correspond au CPS du marché.</p>{error && <div className="alert error" role="alert">{error}</div>}<div className="inline-actions"><input aria-label="Rechercher une formule" placeholder="Rechercher BAT3, TR2…" value={query} onChange={(event) => setQuery(event.target.value)} /><button type="button" className="secondary" onClick={load}>Rechercher</button></div>{loading ? <p className="state">Chargement…</p> : <div className="formula-picker-list">{templates.map((template) => <article className="formula-card" key={template.id}><div className="inline-actions"><strong>{template.code || template.designation}</strong><span className="badge">{template.status}</span></div><p>{template.expression_display || 'Expression non renseignée'}</p>{editable ? <button type="button" className="primary" disabled={busy !== '' || template.status !== 'VERIFIED'} onClick={() => void select(template)}>{busy === template.id ? 'Enregistrement…' : 'Sélectionner cette formule'}</button> : <span className="muted">Lecture seule</span>}</article>)}</div>}</div>
+}
+
+export function RevisionApplicationSection({ marketId, role, initialMode, onModeChange }: Props) {
+  const [application, setApplication] = useState<RevisionApplication | null>(null); const [groups, setGroups] = useState<RevisionGroup[]>([]); const [mode, setMode] = useState<RevisionApplication['revision_application_mode']>(initialMode ?? 'PRICE_ASSIGNMENT'); const [loading, setLoading] = useState(Boolean(initialMode)); const [saving, setSaving] = useState(false); const [error, setError] = useState('')
   const editable = canEdit(role)
-  useEffect(() => {
-    if (!initialMode) return
-    setLoading(true)
-    Promise.all([getRevisionApplication(marketId), listRevisionGroups(marketId)]).then(([loaded, loadedGroups]) => { setApplication(loaded); setMode(loaded.revision_application_mode); setGroupId(loaded.global_revision_group ?? ''); setGroups(loadedGroups) }).catch((caught) => setError(message(caught))).finally(() => setLoading(false))
-  }, [marketId, initialMode])
-  const save = async (nextMode = mode) => {
-    setError(''); setSaving(true)
-    try { const saved = await saveRevisionApplication(marketId, { revision_application_mode: nextMode, global_revision_group: nextMode === 'GLOBAL_FORMULA' ? groupId || null : null }); setApplication(saved); setMode(saved.revision_application_mode); setGroupId(saved.global_revision_group ?? '') } catch (caught) { setError(message(caught)) } finally { setSaving(false) }
-  }
+  useEffect(() => { if (!initialMode) return; setLoading(true); Promise.all([getRevisionApplication(marketId), listRevisionGroups(marketId)]).then(([loaded, loadedGroups]) => { setApplication(loaded); setMode(loaded.revision_application_mode); setGroups(loadedGroups) }).catch((caught) => setError(message(caught))).finally(() => setLoading(false)) }, [marketId, initialMode])
+  const saveMode = async (nextMode: RevisionApplication['revision_application_mode']) => { setError(''); setMode(nextMode); onModeChange?.(nextMode); if (nextMode !== 'PRICE_ASSIGNMENT') return; setSaving(true); try { const saved = await saveRevisionApplication(marketId, { revision_application_mode: nextMode, global_revision_group: null }); setApplication(saved); window.dispatchEvent(new CustomEvent('revision-application-mode-changed', { detail: nextMode })) } catch (caught) { setError(message(caught)) } finally { setSaving(false) } }
+  const selectGlobal = async (group: RevisionGroup, formula: MarketFormula) => { setSaving(true); setError(''); try { const saved = await saveRevisionApplication(marketId, { revision_application_mode: 'GLOBAL_FORMULA', global_revision_group: group.id }); setApplication({ ...saved, global_formula: formula }); setMode('GLOBAL_FORMULA'); onModeChange?.('GLOBAL_FORMULA'); window.dispatchEvent(new CustomEvent('revision-application-mode-changed', { detail: 'GLOBAL_FORMULA' })); setGroups((current) => [...current, { ...group, formulas: [formula] }]) } catch (caught) { setError(message(caught)) } finally { setSaving(false) } }
+  const globalGroup = groups.find((group) => group.id === application?.global_revision_group)
   if (!initialMode) return null
-  return <section aria-label="Application de la révision"><div className="section-heading"><div><p className="eyebrow">PÉRIMÈTRE DE RÉVISION</p><h2>Application de la révision</h2></div></div>
-    <div className="card company-form"><p><strong>Comment la révision des prix s'applique-t-elle à ce marché ?</strong></p>
-      <label><input type="radio" name={`mode-${marketId}`} checked={mode === 'GLOBAL_FORMULA'} disabled={!editable || saving} onChange={() => setMode('GLOBAL_FORMULA')} /> Une seule formule pour l'ensemble du marché</label>
-      <label><input type="radio" name={`mode-${marketId}`} checked={mode === 'PRICE_ASSIGNMENT'} disabled={!editable || saving} onChange={() => { setMode('PRICE_ASSIGNMENT'); void save('PRICE_ASSIGNMENT') }} /> Affectation des formules prix par prix</label>
-      {loading && <p className="state">Chargement…</p>}
-      {error && <div className="alert error" role="alert">{error}</div>}
-      {mode === 'GLOBAL_FORMULA' && <label>Formule de révision<select value={groupId} disabled={!editable || saving} onChange={(event) => { setGroupId(event.target.value); if (event.target.value) void save('GLOBAL_FORMULA') }}><option value="">Sélectionner une formule</option>{groups.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}</select></label>}
-      {mode === 'GLOBAL_FORMULA' && application?.global_formula && <div className="alert">Formule globale : {application.global_formula.label}<br />Partie fixe : {application.global_formula.constant_term ?? '—'}<br />Partie variable calculée selon les coefficients indicés.</div>}
-      {mode === 'GLOBAL_FORMULA' && <p className="muted">Le BDP détaillé n'est pas obligatoire pour poursuivre la révision.</p>}
-    </div>
-  </section>
+  return <section aria-label="Application de la révision"><div className="section-heading"><div><p className="eyebrow">PÉRIMÈTRE DE RÉVISION</p><h2>Mode de révision</h2></div></div><div className="card company-form"><label className="checkbox-label"><input type="radio" name={`mode-${marketId}`} checked={mode === 'GLOBAL_FORMULA'} disabled={!editable || saving} onChange={() => setMode('GLOBAL_FORMULA')} /> Une seule formule pour l'ensemble du marché</label><label className="checkbox-label"><input type="radio" name={`mode-${marketId}`} checked={mode === 'PRICE_ASSIGNMENT'} disabled={!editable || saving} onChange={() => void saveMode('PRICE_ASSIGNMENT')} /> Plusieurs formules</label>{loading && <p className="state">Chargement…</p>}{error && <div className="alert error" role="alert">{error}</div>}
+      {mode === 'GLOBAL_FORMULA' && !application?.global_formula && <FormulaCatalog marketId={marketId} groups={groups} editable={editable} onSelected={(group, formula) => void selectGlobal(group, formula)} />}
+      {mode === 'GLOBAL_FORMULA' && application?.global_formula && <div className="formula-selected alert"><strong>{globalGroup?.code || application.global_formula.label}</strong><p>{application.global_formula.expression_display || 'Expression non renseignée'}</p><p className="muted">Cette formule s'applique à l'ensemble du marché. Le BDP détaillé n'est pas obligatoire.</p>{editable && <button type="button" className="secondary" onClick={() => setApplication((current) => current ? { ...current, global_formula: null, global_revision_group: null } : current)}>Changer de formule</button>}</div>}
+      {mode === 'PRICE_ASSIGNMENT' && <div className="workflow-step"><h3>Plusieurs formules</h3><p>Ajoutez le bordereau des prix du marché afin d'affecter les prix aux différentes formules de révision.</p><p className="muted">Après création du BDP, l’affectation se fait sur une page dédiée.</p></div>}
+    </div></section>
 }

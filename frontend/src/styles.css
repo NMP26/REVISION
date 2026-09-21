@@ -46,6 +46,7 @@ input:focus, textarea:focus, select:focus, button:focus-visible, a:focus-visible
 button:disabled { opacity: .6; cursor: wait; }
 .form-card .primary { width: 100%; margin-top: 24px; }
 .alert { border-radius: 9px; padding: 12px 14px; margin: 16px 0; }
+.warning { color: #805b12; background: #fff8dc; border: 1px solid #f1d98a; }
 .error { color: #9b2c2c; background: #fff5f5; border: 1px solid #fed7d7; }
 .field-error { color: #b83232; font-weight: 500; }
 .company-list { display: grid; gap: 12px; }
@@ -76,6 +77,36 @@ button:disabled { opacity: .6; cursor: wait; }
 .consortium-detail-row span { color: #60778d; }
 .consortium-notes { margin-top: 18px; padding: 18px 20px; }
 .consortium-notes p { margin-bottom: 0; white-space: pre-wrap; }
+.workflow-step { margin-top: 24px; padding: 18px; border-left: 4px solid #1877c9; background: #f4f8fb; }
+.workflow-step h3 { margin: 0 0 8px; }
+.formula-selected { background: #eef8f2; border: 1px solid #b8dec7; }
+.formula-selected p { margin: 8px 0; }
+.formula-picker-list { display: grid; gap: 12px; margin-top: 18px; }
+.formula-card { padding: 16px; border: 1px solid #dce7ef; border-radius: 12px; background: #fbfdff; }
+.formula-card p { margin: 10px 0; }
+.formula-card button { margin-top: 6px; }
+.schedule-available { display: grid; gap: 6px; padding: 16px; margin: 18px 0; background: #eef8f2; border: 1px solid #b8dec7; border-radius: 12px; }
+.assignment-summary { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 18px 22px; }
+.assignment-summary > div:first-child { display: flex; flex-wrap: wrap; gap: 18px; }
+.assignment-summary span { color: #60778d; }
+.assignment-ready { color: #13734b; font-weight: 800; }
+.assignment-warning { color: #805b12; font-weight: 750; }
+.assignment-grid { display: grid; gap: 18px; margin-top: 18px; }
+.assignment-card { padding: 22px; }
+.assignment-card-heading { display: flex; justify-content: space-between; gap: 20px; }
+.assignment-card-heading h3 { margin: 4px 0 8px; }
+.formula-expression { font-weight: 700; color: #17324d; }
+.assignment-items { display: grid; gap: 8px; margin-top: 18px; }
+.assignment-item { display: flex; align-items: flex-start; gap: 10px; padding: 12px; margin: 0; border: 1px solid #dce7ef; border-radius: 9px; background: #fff; }
+.assignment-item input { width: auto; margin-top: 3px; }
+.assignment-item span { display: grid; gap: 4px; }
+.assignment-item small { color: #60778d; font-weight: 500; }
+.assignment-item.is-blocked { background: #f4f8fb; }
+.pending-list { padding: 22px; margin-top: 18px; }
+.pending-list h3 { margin-top: 0; }
+.pending-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 0; border-top: 1px solid #edf2f5; }
+.pending-row span { display: grid; gap: 4px; }
+.pending-row small { color: #805b12; }
 @media (max-width: 680px) {
   .topbar, .page-heading, .lot-row { align-items: flex-start; flex-direction: column; }
   .topbar-main { align-items: flex-start; flex-direction: column; gap: 12px; }
@@ -85,4 +116,6 @@ button:disabled { opacity: .6; cursor: wait; }
   .consortium-member-row, .consortium-detail-row { grid-template-columns: 1fr; align-items: stretch; }
   .page-heading { gap: 14px; }
   .company-row > div:last-child { text-align: left; }
+  .assignment-summary { align-items: flex-start; flex-direction: column; }
+  .pending-row { align-items: flex-start; flex-direction: column; }
 }

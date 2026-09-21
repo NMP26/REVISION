@@ -382,6 +382,8 @@ class PriceAssignmentView(APIView):
             return error_response("NOT_FOUND", "Marché introuvable.", http_status=status.HTTP_404_NOT_FOUND)
         if not can_update_market(request.user, market):
             return error_response("PERMISSION_DENIED", "Action non autorisée.", http_status=status.HTTP_403_FORBIDDEN)
+        if market.revision_application_mode != Market.RevisionApplicationMode.PRICE_ASSIGNMENT:
+            return error_response("VALIDATION_ERROR", "L'affectation des prix n'est disponible que pour un marché en mode Plusieurs formules.", http_status=status.HTTP_400_BAD_REQUEST)
         data = request.data
         price_item_ids = data.get("price_item_ids")
         if price_item_ids is not None and not isinstance(price_item_ids, list):
