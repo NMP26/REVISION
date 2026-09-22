@@ -19,6 +19,13 @@ Le contenu explicatif requis couvre total du décompte, montants soumis et
 hors calcul, formules, ventilation mensuelle, indices, coefficients,
 groupes et total de révision.
 
+Pour la cible V1_SIMPLE, la note de calcul doit également pouvoir afficher
+les lignes mensuelles conservées à zéro jour et, pour chaque mois, l'année,
+le mois, le nombre de jours, le total des jours, le montant HT ventilé,
+`I / I₀`, le terme variable, `K`, `K - 1`, le montant à réviser et le
+montant de la révision. Si l'indice manque, elle affiche `Index non
+disponible` et ne produit pas de calcul silencieux.
+
 ## Éléments DRAFT / TBD
 
 Les formats, templates, noms de fichiers, stockage, permissions et

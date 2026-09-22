@@ -513,3 +513,11 @@ silencieusement ; aucun seuil ou arrondi n'est inventé.
 Exigences liées: BDP-003, BDP-009, IMP-001, IMP-002, DEC-003..DEC-004,
 HIS-002..HIS-008, LOT2B-015..020
 Statut: ACCEPTED — décision produit validée, implémentation non autorisée
+## ADR-IDX-002 — Validation documentaire des indices officiels
+
+Date: 2026-09-22
+Sujet: Passage contrôlé de `PENDING_VALIDATION` à `DEFINITIVE`
+Décision: Les barèmes officiels sont conservés par hash SHA256, extraits sans OCR par défaut, puis comparés séparément aux valeurs API et locales. Une valeur n'est validée que lorsque l'égalité officiel/API est établie et qu'aucun conflit local n'existe. Toute divergence reste persistée comme conflit et n'écrase jamais la valeur locale.
+Motif: Garantir une provenance documentaire explicite et une validation idempotente, sans présenter revisiondesprix.ma comme source officielle.
+Impact: Ajout additif de la migration 0013 pour les métadonnées de document, extractions officielles, comparaisons et audits. La commande d'application refuse toute base qui n'est pas explicitement TEST_DATABASE.
+Statut: ACCEPTED

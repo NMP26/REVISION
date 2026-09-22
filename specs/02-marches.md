@@ -42,6 +42,15 @@ converti en jours par multiplication par 30.
 `formula_structure` vaut `SINGLE` ou `MULTIPLE` et décrit uniquement la
 structure contractuelle. Il ne crée ni ne contient une formule.
 
+## Parcours V1-A
+
+Pour `formula_structure=SINGLE`, le parcours produit V1 présente directement
+une seule « FORMULE DE RÉVISION DU MARCHÉ » et le catalogue des formules
+simples disponibles. Il ne présente ni choix mono/multi-formules, ni lots,
+ni BDP, ni affectation par prix, ni `RevisionGroup` comme concept métier.
+Les structures `MULTIPLE`, `MarketLot`, `PriceSchedule`, `PriceItem` et
+`RevisionGroup` restent conservées pour les parcours avancés et LOT 2B.
+
 `status` vaut `ACTIVE` ou `ARCHIVED`, avec `ACTIVE` par défaut. Il n'y a
 pas de statut `SUSPENDED`; les suspensions/reprises futures sont des
 événements `WorkSuspension` distincts.

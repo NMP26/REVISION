@@ -1,31 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError, FormulaTemplate, Market, MarketFormula, PriceItem, PriceMatrix, PriceSchedule, RevisionApplication, RevisionGroup, assignPriceItems, copyFormulaTemplate, getMarket, getPriceMatrix, getPriceSchedule, getRevisionApplication, listFormulaTemplates, listRevisionGroups, saveRevisionGroup, validatePriceAssignment } from '../lib/api'
+import { FormulaCatalogSelector } from './FormulaCatalogSelector'
 
 const canEdit = (role: Market['current_user_role'] | undefined) => role === 'OWNER' || role === 'ADMIN'
 const message = (error: unknown) => error instanceof ApiError ? error.payload.message : 'Erreur réseau. Réessayez.'
 
 function FormulaPicker({ marketId, groups, onAdded, onCancel }: { marketId: string; groups: RevisionGroup[]; onAdded: () => void; onCancel: () => void }) {
-  const [query, setQuery] = useState('')
-  const [templates, setTemplates] = useState<FormulaTemplate[]>([])
-  const [loading, setLoading] = useState(true)
-  const [busy, setBusy] = useState('')
-  const [error, setError] = useState('')
-  const load = () => { setLoading(true); setError(''); listFormulaTemplates(query).then(setTemplates).catch((caught) => setError(message(caught))).finally(() => setLoading(false)) }
-  useEffect(() => { load() }, [])
   const select = async (template: FormulaTemplate) => {
-    setBusy(template.id); setError('')
-    try {
-      const group = await saveRevisionGroup(marketId, { code: `FORMULA-${Date.now()}`, name: template.designation, sort_order: groups.length })
-      await copyFormulaTemplate(marketId, group.id, template.id)
-      onAdded()
-    } catch (caught) { setError(message(caught)) } finally { setBusy('') }
+    const group = await saveRevisionGroup(marketId, { code: template.code, name: template.designation, sort_order: groups.length })
+    await copyFormulaTemplate(marketId, group.id, template.id)
+    onAdded()
   }
   return <div className="card company-form" aria-label="Catalogue universel des formules">
     <div className="section-heading"><div><h3>Choisir une formule du catalogue</h3><p className="muted">La formule est sélectionnée selon le contrat/CPS, jamais selon la désignation du prix.</p></div><button type="button" className="link-button" onClick={onCancel}>Fermer</button></div>
-    {error && <div className="alert error" role="alert">{error}</div>}
-    <div className="inline-actions"><input aria-label="Rechercher une formule" placeholder="Rechercher BAT3, TR2…" value={query} onChange={(event) => setQuery(event.target.value)} /><button type="button" className="secondary" onClick={load}>Rechercher</button></div>
-    {loading ? <p className="state">Chargement du catalogue…</p> : templates.length === 0 ? <p className="state">Aucune formule disponible.</p> : <div className="formula-picker-list">{templates.map((template) => <article className="formula-card" key={template.id}><div className="inline-actions"><strong>{template.code || template.designation}</strong><span className="badge">{template.status}</span></div><p>{template.expression_display || 'Expression non renseignée'}</p><p className="muted">{template.designation}</p><button type="button" className="primary" disabled={busy !== '' || template.status !== 'VERIFIED'} onClick={() => void select(template)}>{busy === template.id ? 'Ajout…' : 'Sélectionner cette formule'}</button></article>)}</div>}
+    <FormulaCatalogSelector editable onSelect={select} onCancel={onCancel} alwaysOpen />
   </div>
 }
 

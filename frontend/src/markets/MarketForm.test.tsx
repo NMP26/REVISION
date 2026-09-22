@@ -20,8 +20,8 @@ describe('MarketForm', () => {
     expect(screen.getByLabelText("Maître d'ouvrage")).toBeRequired()
     expect(screen.getByText('Jours')).toBeInTheDocument()
     expect(screen.getByText('Mois')).toBeInTheDocument()
-    expect(screen.getByText('Formule unique')).toBeInTheDocument()
-    expect(screen.getByText('Formules multiples')).toBeInTheDocument()
+    expect(screen.queryByText('Formule unique')).not.toBeInTheDocument()
+    expect(screen.queryByText('Formules multiples')).not.toBeInTheDocument()
   })
 
   it('permet de saisir les dates sans valeur par défaut inventée', () => {

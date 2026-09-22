@@ -1,16 +1,43 @@
-STATUS: DRAFT
-SOURCE: GOV 1.1 — comportement fonctionnel approuvé, détail de calcul à valider
+STATUS: APPROVED FOR V1 SCOPE — CALCULATION IMPLEMENTATION NOT AUTHORIZED
+SOURCE: décision produit V1 — formule unique et ventilation par jours
 
 # Révision des prix
 
-## Éléments fonctionnels APPROVED
+## Parcours V1
 
-La chaîne conceptuelle est :
+```text
+Marché simple → formule unique → OS/calendrier → décompte HT
+→ jours de travaux par mois → ventilation du montant HT
+→ indices mensuels → calcul → validation → historique → documents
+```
+
+Le moteur V1 calcule à partir du marché, de sa formule unique, du montant
+HT du décompte, de sa période, de ses allocations mensuelles de jours et
+des indices officiels. Aucun article, lot, BDP, quantité, prix unitaire ou
+multi-formule n'est requis.
+
+Pour chaque mois, la note de calcul doit pouvoir conserver les jours, le
+total des jours, le montant mensuel à réviser, l'index, `I / I₀`, le terme
+variable, `K`, `K - 1` et le montant de la révision. Le montant cumulé HT
+est calculé depuis les décomptes successifs.
+
+Un index absent est affiché `Index non disponible` et bloque le calcul. Il
+ne peut être remplacé par zéro, le mois précédent, une valeur inventée ou
+un fallback provisoire non validé.
+
+## Éléments fonctionnels APPROVED — cible historique / hors V1 simple
+
+La chaîne conceptuelle historique avancée est :
 
 ```text
 StatementItems → agrégation par RevisionGroup
 → ventilation mensuelle → formule du groupe → agrégation
 ```
+
+Cette chaîne et les obligations multi-formules ci-dessous sont conservées
+pour les versions futures. Elles ne font pas partie du parcours V1, qui
+utilise un montant HT simple directement rattaché au marché et à sa formule
+unique.
 
 | ID | Obligation |
 |---|---|
@@ -36,6 +63,11 @@ la distinction REG-010/REG-011 ; aucun indice ne devient zéro, valeur
 précédente ou extrapolation.
 
 ## Éléments DRAFT / TBD
+
+En V1, la ventilation financière est déterminée par les jours de travaux
+mensuels conservés dans `MonthlyWorkAllocation`. La règle d'égalité exacte
+des montants mensuels et de correction explicite de l'écart d'arrondi sur
+la dernière ligne/mois doit être couverte par V1-C.
 
 Les équations, arrondis, bornes de périodes, erreurs et format de preuve
 restent à détailler dans une spec de calcul validée. Aucun code métier

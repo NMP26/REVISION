@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.8.0 — V1 indices, validation et décomptes
+
+- Référentiel local des indices, staging externe et promotion contrôlée.
+- Validation officielle, provenance et statuts réglementaires des publications.
+- Décomptes simples, allocations mensuelles et preview de calcul V1.
+- Migrations additives `0007` à `0014`, sans suppression de données métier existantes.
+- Suite backend complète (151 tests), frontend (68 tests), lint et build validés avant release.
+
 ## v0.7.1 — Corrections workflow LOT 2B multi-formules
 
 - Clarification du workflow « formule unique » / « plusieurs formules ».

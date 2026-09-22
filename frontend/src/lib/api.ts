@@ -123,7 +123,17 @@ export type RevisionApplication = {
   global_formula: MarketFormula | null
   price_schedule_required: boolean
   updated_at: string
+  base_month?: string | null
+  base_index_code?: string | null
+  base_index_value?: string | null
+  base_index_status?: 'DEFINITIVE' | 'PROVISIONAL' | 'PENDING_VALIDATION' | 'INDEX_NOT_AVAILABLE' | 'DATE_MISSING' | null
+  base_index_source?: string | null
 }
+export type IndexDefinition = { id: string; code: string; designation: string; domain: string; active: boolean }
+export type IndexPublication = { id: string; year: number; month: number; publication_date: string | null; source_url: string; document_reference: string; document_hash: string; source_type: 'OFFICIAL' | 'EXTERNAL_SECONDARY' | 'MANUAL_VALIDATED'; status: string; imported_at: string; validated_at: string | null }
+export type MonthlyIndexValue = { id: string; index_definition: string; index_definition_detail: IndexDefinition; publication: string; publication_detail: IndexPublication; year: number; month: number; value: string; status: 'DEFINITIVE' | 'PROVISIONAL' | 'PENDING_VALIDATION'; source_url: string; source_document: string; source_reference: string; validated_at: string | null; created_at: string; updated_at: string }
+export type ExternalIndexStaging = { id: string; source_provider: string; source_endpoint: string; retrieved_at: string; external_code: string; external_designation: string | null; year: number | null; month: number | null; raw_value: string; normalized_value: string | null; raw_payload_hash: string; previous_raw_value: string; previous_normalized_value: string | null; previous_raw_payload_hash: string; source_changed: boolean; comparison_status: string; validation_status: string; matched_index_definition: string | null; matched_index_definition_detail?: IndexDefinition | null; local_value: string | null; pdf_value: string | null; pdf_comparison_status: string; created_at: string; updated_at: string }
+export type ExternalIndexStagingPage = { results: ExternalIndexStaging[]; count: number; page: number; page_size: number; has_next: boolean }
 export type PriceSchedule = {
   id: string; market: string; status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED'; source_type: 'MANUAL' | 'IMPORT';
   name: string; notes: string; change_version: number; item_count: number; created_at: string; updated_at: string
@@ -139,6 +149,10 @@ export type PriceMatrix = {
   mode: 'GLOBAL_FORMULA' | 'PRICE_ASSIGNMENT'; price_schedule_required: boolean;
   formulas: Array<{ id: string; name: string; code: string; formulas: MarketFormula[] }>; items: PriceItem[]
 }
+export type Statement = { id: string; market: string; number: number; date: string; amount_ht: string; observation: string; allocation_method: 'ACTUAL_EXECUTION' | 'CALENDAR_DAY_PRORATA'; created_at: string; updated_at: string }
+export type MonthlyWorkAllocation = { id: string; statement: string; year: number; month: number; work_days: string; created_at: string; updated_at: string }
+export type StatementCalculationRow = { year: number; month: number; work_days: string; monthly_amount: string; amount_to_revise: string; index_code: string | null; base_index: string | null; current_index: string | null; index_status: string; index_source: { publication?: string | null; source_type?: string | null; source_reference?: string | null }; ratio: string | null; K: string | null; K_minus_1: string | null; revision_amount: string | null; calculation_status: string }
+export type StatementCalculation = { statement_id: string; statement_amount_ht: string; allocation_method: string; total_work_days: string; total_allocated_amount: string; total_revision: string | null; calculation_status: string; rounding_status: string; base_index: string | null; base_index_status: string | null; base_index_source: unknown; index_code: string | null; formula: { constant: string | null; coefficient: string | null; index_code: string | null }; monthly_results: StatementCalculationRow[]; message?: string }
 
 export function login(email: string, password: string) {
   return api<User>('/auth/login/', { method: 'POST', body: JSON.stringify({ email, password }) })
@@ -174,6 +188,15 @@ export function saveMarketLot(data: Record<string, unknown>, marketId: string, l
   return api<MarketLot>(lotId ? `/markets/${marketId}/lots/${lotId}/` : `/markets/${marketId}/lots/`, { method: lotId ? 'PATCH' : 'POST', body: JSON.stringify(payload) })
 }
 export function listRevisionGroups(marketId: string) { return api<RevisionGroup[]>(`/markets/${marketId}/revision-groups/`) }
+export function listIndexValues(query = '') { return api<MonthlyIndexValue[]>(`/indices/values/${query ? `?${query}` : ''}`) }
+export function listIndexPublications() { return api<IndexPublication[]>('/indices/publications/') }
+export function listExternalIndexStaging(query = '') { return api<ExternalIndexStagingPage>(`/indices/staging/${query ? `?${query}` : ''}`) }
+export function getMarketBaseIndex(marketId: string) { return api<Record<string, unknown>>(`/markets/${marketId}/base-index/`) }
+export function listStatements(marketId: string) { return api<Statement[]>(`/markets/${marketId}/statements/`) }
+export function saveStatement(marketId: string, data: Record<string, unknown>, statementId?: string) { return api<Statement>(statementId ? `/markets/${marketId}/statements/${statementId}/` : `/markets/${marketId}/statements/`, { method: statementId ? 'PATCH' : 'POST', body: JSON.stringify(data) }) }
+export function listMonthlyWorkAllocations(marketId: string, statementId: string) { return api<MonthlyWorkAllocation[]>(`/markets/${marketId}/statements/${statementId}/allocations/`) }
+export function saveMonthlyWorkAllocation(marketId: string, statementId: string, data: Record<string, unknown>, allocationId?: string) { return api<MonthlyWorkAllocation>(allocationId ? `/markets/${marketId}/statements/${statementId}/allocations/${allocationId}/` : `/markets/${marketId}/statements/${statementId}/allocations/`, { method: allocationId ? 'PATCH' : 'POST', body: JSON.stringify(data) }) }
+export function getStatementCalculation(marketId: string, statementId: string) { return api<StatementCalculation>(`/markets/${marketId}/statements/${statementId}/calculation/`) }
 export function saveRevisionGroup(marketId: string, data: Record<string, unknown>, groupId?: string) {
   return api<RevisionGroup>(groupId ? `/markets/${marketId}/revision-groups/${groupId}/` : `/markets/${marketId}/revision-groups/`, { method: groupId ? 'PATCH' : 'POST', body: JSON.stringify(data) })
 }

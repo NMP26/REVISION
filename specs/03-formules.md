@@ -11,6 +11,15 @@ incluse dans l'implémentation LOT 2A.
 
 ## 1. Principes métier
 
+### Parcours V1-A — formule unique
+
+Dans le parcours V1, un marché `SINGLE` sélectionne une seule formule
+contractuelle simple depuis le catalogue. Le code, la désignation et
+l'expression sont affichés ; l'utilisateur ne choisit pas entre une et
+plusieurs formules et ne manipule ni `RevisionGroup` ni `FormulaTerm` comme
+objets métier. La structure interne versionnée existante est conservée pour
+la compatibilité et l'historique futurs.
+
 Un marché ne porte pas nécessairement une seule formule. La structure
 existante `Market.formula_structure` (`SINGLE` ou `MULTIPLE`) ne constitue
 pas une formule et ne doit pas être remplacée par une chaîne calculable.

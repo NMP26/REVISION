@@ -78,6 +78,10 @@ Exigence → ADR → Spec → Code → Migration → Test → Version
 | MKT-014 | Le statut est ACTIVE ou ARCHIVED, ACTIVE par défaut ; SUSPENDED n'est pas un statut de Market. | Décision LOT 1B | ADR-LOT1B-001 | specs/02-marches.md | backend/markets/models.py; frontend/src/markets/MarketForm.tsx | backend/markets/migrations/0001_initial.py | backend/markets/tests.py::test_formula_structure_and_archived_status | TESTED | v0.3.0+LOT1B |
 | MKT-015 | Le numéro de marché est unique par société, jamais globalement dans LOT 1B. | Décision LOT 1B | ADR-LOT1B-001 | specs/02-marches.md | backend/markets/models.py; backend/markets/views.py | backend/markets/migrations/0001_initial.py | backend/markets/tests.py::test_number_unique_per_company_but_reusable_in_other_company | TESTED | v0.3.0+LOT1B |
 | MKT-016 | La structure `formula_structure` vaut SINGLE ou MULTIPLE et ne crée aucune formule. | Décision LOT 1B | ADR-LOT1B-001 | specs/02-marches.md | backend/markets/models.py; frontend/src/markets/MarketForm.tsx | backend/markets/migrations/0001_initial.py | backend/markets/tests.py::test_formula_structure_and_archived_status | TESTED | v0.3.0+LOT1B |
+| V1A-001 | Un marché `SINGLE` présente directement une formule unique et ne présente pas le choix mono/multi-formules. | Décision produit V1-A | — | specs/02-marches.md; plans/V1-SIMPLE.md | frontend/src/markets/MarketsPage.tsx; frontend/src/markets/RevisionApplicationSection.tsx | — | frontend/src/markets/V1SimpleFormulaFlow.test.tsx | IMPLEMENTED | V1-A |
+| V1A-002 | Le catalogue V1 est visible à l'ouverture du sélecteur sans recherche préalable et peut être filtré. | Décision produit V1-A | — | specs/03A-formula-template-library.md | frontend/src/markets/FormulaCatalogSelector.tsx; backend/markets/views.py | backend/markets/migrations/0007_product_owner_formula_catalog.py | frontend/src/markets/V1SimpleFormulaFlow.test.tsx; backend/markets/tests.py::V1SimpleFormulaApiTests | IMPLEMENTED | V1-A |
+| V1A-003 | BAT3 et les autres formules simples autorisées affichent code, désignation et expression, sans valeur d'indice inventée. | Décision produit V1-A | — | specs/03-formules.md; specs/03A-formula-template-library.md | frontend/src/markets/FormulaCatalogSelector.tsx; frontend/src/markets/RevisionApplicationSection.tsx | backend/markets/migrations/0007_product_owner_formula_catalog.py | frontend/src/markets/V1SimpleFormulaFlow.test.tsx; backend/markets/tests.py::V1SimpleFormulaApiTests | IMPLEMENTED | V1-A |
+| V1A-004 | Le parcours V1 ne requiert ni BDP, ni lot, ni `RevisionGroup` exposé ; l'architecture LOT 2B est conservée. | Décision produit V1-A | ADR-LOT2B-006 | specs/02-marches.md; architecture/DATA_MODEL.md | frontend/src/markets/MarketsPage.tsx; backend/markets/services.py | — | frontend/src/markets/V1SimpleFormulaFlow.test.tsx; backend/markets/tests.py::V1SimpleFormulaApiTests; suite LOT 2B | IMPLEMENTED | V1-A |
 | MKT-017 | Les permissions Market réutilisent Membership actif du LOT 1A. | Décision LOT 1B | ADR-LOT1B-001 | specs/02-marches.md | backend/markets/permissions.py; backend/markets/views.py | — | backend/markets/tests.py::test_owner_admin_can_create_and_update_member_can_read_only; backend/markets/tests.py::test_inactive_or_missing_membership_cannot_read_or_create | TESTED | v0.3.0+LOT1B |
 | MKT-018 | `date_limite_remise_offres`, `date_ouverture_plis`, `date_signature` et `date_os_commencement` sont nullables. | Décision LOT 1B | ADR-LOT1B-001 | specs/02-marches.md | backend/markets/models.py; frontend/src/markets/MarketForm.tsx | backend/markets/migrations/0001_initial.py | backend/markets/tests.py::test_dates_are_nullable; frontend/src/markets/MarketForm.test.tsx | TESTED | v0.3.0+LOT1B |
 | MKT-019 | Les règles réglementaires sont séparées des faits persistés du marché. | Décision LOT 1B | ADR-LOT1B-001 | architecture/DATA_MODEL.md | backend/markets/models.py; backend/markets/serializers.py | backend/markets/migrations/0001_initial.py | backend/markets/tests.py::test_dates_are_nullable | IMPLEMENTED | v0.3.0+LOT1B |
@@ -116,11 +120,16 @@ Exigence → ADR → Spec → Code → Migration → Test → Version
 | DEC-005 | Le montant de période peut être obtenu par cumul courant moins cumul précédent. | Cahier cumulatif §8 | ADR-GOV-008 | specs/06-decomptes.md | — | — | TBD | APPROVED | GOV-1.1 |
 | DEC-006 | Le delta détaillé est calculable par article puis agrégé par RevisionGroup. | Cahier cumulatif §8 | ADR-GOV-008 | specs/06-decomptes.md | — | — | TBD | APPROVED | GOV-1.1 |
 | DEC-007 | Le décompte définitif fait ressortir le total de révision et un état récapitulatif. | Arrêté 3-302-15, art. 15 | ADR-REG-001 | specs/06-decomptes.md | — | — | TBD | PLANNED | REG-1.0 |
+| DEC-008 | En V1, le décompte est une enveloppe HT simple sans article, quantité, prix, lot, BDP ou détail de prestation. | Décision produit V1 | — | specs/06-decomptes.md; plans/V1-SIMPLE.md | — | — | revue documentaire | APPROVED | V1-SIMPLE |
+| DEC-009 | En V1, Statement porte uniquement numéro, date, montant HT Decimal et observation facultative ; les dates de période restent dans l'OS/calendrier et l'exécution. | Décision produit V1 — périmètre final | — | specs/06-decomptes.md; architecture/DATA_MODEL.md; plans/V1-SIMPLE.md | — | — | revue documentaire | APPROVED | V1-SIMPLE |
 | VEN-001 | La ventilation supporte ACTUAL_EXECUTION. | Cahier cumulatif §10 | ADR-GOV-009 | specs/07-revision-prix.md | — | — | TBD | APPROVED | GOV-1.1 |
 | VEN-002 | La ventilation supporte CALENDAR_DAY_PRORATA. | Cahier cumulatif §10 | ADR-GOV-009 | specs/07-revision-prix.md | — | — | TBD | APPROVED | GOV-1.1 |
 | VEN-003 | ACTUAL_EXECUTION est prioritaire si les montants réels sont disponibles. | Cahier cumulatif §10 | ADR-GOV-009 | specs/07-revision-prix.md | — | — | TBD | APPROVED | GOV-1.1 |
 | VEN-004 | CALENDAR_DAY_PRORATA est un repli justifié si la répartition réelle est impossible. | Cahier cumulatif §10 | ADR-GOV-009 | specs/07-revision-prix.md | — | — | TBD | APPROVED | GOV-1.1 |
 | VEN-005 | Méthode, valeurs proposées/retenues et justification sont conservées pour audit. | Cahier cumulatif §10 | ADR-GOV-009 | specs/07-revision-prix.md | — | — | TBD | APPROVED | GOV-1.1 |
+| VEN-006 | En V1, un décompte conserve une allocation dédiée par année, mois et jours de travaux, sans détourner StatementItem ou PriceItem. | Décision produit V1 — jours de travaux par mois | — | specs/06-decomptes.md; architecture/DATA_MODEL.md | — | — | revue documentaire | APPROVED | V1-SIMPLE |
+| VEN-007 | Les mois à zéro jour restent conservés et visibles dans la note de calcul. | Décision produit V1 — jours de travaux par mois | — | specs/06-decomptes.md; specs/07-revision-prix.md | — | — | revue documentaire | APPROVED | V1-SIMPLE |
+| VEN-008 | Le montant mensuel est calculé par prorata des jours avec Decimal et la somme est exactement égale au montant HT, l'écart d'arrondi étant traité explicitement sur la dernière ligne/mois. | Décision produit V1 — jours de travaux par mois | — | specs/06-decomptes.md; specs/07-revision-prix.md | — | — | revue documentaire | APPROVED | V1-SIMPLE |
 | REV-001 | Un calcul multi-formules agrège les StatementItems par RevisionGroup. | Cahier cumulatif §9 | ADR-GOV-002 | specs/07-revision-prix.md | — | — | TBD | APPROVED | GOV-1.1 |
 | REV-002 | Le système contrôle la concordance entre les articles et le montant du décompte. | Cahier cumulatif §9 | ADR-GOV-002 | specs/07-revision-prix.md | — | — | TBD | APPROVED | GOV-1.1 |
 | REV-003 | Le système contrôle la concordance des montants révisables et hors calcul. | Cahier cumulatif §9 | ADR-GOV-002 | specs/07-revision-prix.md | — | — | TBD | APPROVED | GOV-1.1 |
@@ -130,9 +139,13 @@ Exigence → ADR → Spec → Code → Migration → Test → Version
 | REV-007 | Le résultat de révision est explicable par groupe, formule et période. | Cahier cumulatif §§9,14 | ADR-GOV-011 | specs/07-revision-prix.md | — | — | TBD | PLANNED | GOV-1.1 |
 | REV-008 | Une révision est appliquée aux prestations à exécuter sans demande spéciale du titulaire. | Arrêté 3-302-15, art. 9 | ADR-REG-001 | specs/07-revision-prix.md | — | — | TBD | PLANNED | REG-1.0 |
 | REV-009 | En cas de retard imputable, le calcul compare le coefficient du mois réel au coefficient du dernier mois contractuel et retient le plus faible. | Arrêté 3-302-15, art. 18 | ADR-REG-001 | specs/07-revision-prix.md | — | — | TBD | PLANNED | REG-1.0 |
+| REV-010 | Le cumul HT est calculé à partir des décomptes successifs et n'est pas ressaisi manuellement. | Décision produit V1 — note de calcul SRM-SM | — | specs/07-revision-prix.md | — | — | revue documentaire | APPROVED | V1-SIMPLE |
+| REV-011 | Un index manquant est affiché « Index non disponible » et bloque le calcul sans zéro, reprise du mois précédent ou fallback silencieux. | Décision produit V1 — note de calcul SRM-SM | — | specs/07-revision-prix.md | — | — | revue documentaire | APPROVED | V1-SIMPLE |
+| REV-012 | Le parcours V1 suit Marché simple → formule unique → OS/calendrier → décompte → jours mensuels → ventilation HT → indices → calcul → validation → historique → documents. | Décision produit V1 — périmètre final | — | plans/V1-SIMPLE.md; ROADMAP.md; specs/07-revision-prix.md | — | — | revue documentaire | APPROVED | V1-SIMPLE |
 | IDX-001 | Le référentiel distingue IndexDefinition et IndexValue. | Cahier cumulatif §12 | ADR-GOV-007 | specs/08-indices-baremes.md | — | — | TBD | APPROVED | GOV-1.1 |
 | IDX-002 | IndexValue conserve code, désignation, mois et valeur. | Cahier cumulatif §12 | ADR-GOV-007 | specs/08-indices-baremes.md | — | — | TBD | APPROVED | GOV-1.1 |
 | IDX-003 | IndexValue conserve statut, publication, source et historique. | Cahier cumulatif §12 | ADR-GOV-007 | specs/08-indices-baremes.md | — | — | TBD | APPROVED | GOV-1.1 |
+| IDX-006 | En V1, un indice mensuel absent est affiché « Index non disponible » et bloque le calcul sans valeur de remplacement. | Décision produit V1 — note de calcul SRM-SM | — | specs/08-indices-baremes.md; specs/07-revision-prix.md | — | — | revue documentaire | APPROVED | V1-SIMPLE |
 | IDX-004 | Une valeur d'indice absente ne devient ni zéro, ni valeur précédente, ni extrapolation. | Cahier cumulatif §12 | ADR-GOV-007 | specs/08-indices-baremes.md | — | — | TBD | APPROVED | GOV-1.1 |
 | IDX-005 | Les indices utilisés et leur provenance sont historisés avec la révision. | Cahier cumulatif §§12,13 | ADR-GOV-010 | specs/08-indices-baremes.md | — | — | TBD | PLANNED | GOV-1.1 |
 | HIS-001 | Une révision validée fige le marché et ses données contractuelles. | Cahier cumulatif §13 | ADR-GOV-010 | specs/09-historique-regulation.md | — | — | TBD | APPROVED | GOV-1.1 |
@@ -147,6 +160,7 @@ Exigence → ADR → Spec → Code → Migration → Test → Version
 | DOC-002 | Le système génère un DOCX de révision. | Cahier cumulatif §14 | ADR-GOV-011 | specs/10-documents.md | — | — | TBD | APPROVED | GOV-1.1 |
 | DOC-003 | PDF et DOCX utilisent la même donnée calculée. | Cahier cumulatif §14 | ADR-GOV-011 | specs/10-documents.md | — | — | TBD | APPROVED | GOV-1.1 |
 | DOC-004 | La note de calcul expose le total du décompte et les montants soumis/hors calcul. | Cahier cumulatif §14 | ADR-GOV-011 | specs/10-documents.md | — | — | TBD | APPROVED | GOV-1.1 |
+| DOC-008 | La note de calcul V1 expose les mois à zéro jour, les jours, le total, la ventilation HT, les indices, coefficients et montants dérivés. | Décision produit V1 — note de calcul SRM-SM | — | specs/10-documents.md; plans/V1-SIMPLE.md | — | — | revue documentaire | APPROVED | V1-SIMPLE |
 | DOC-005 | La note de calcul expose formules et ventilation mensuelle. | Cahier cumulatif §14 | ADR-GOV-011 | specs/10-documents.md | — | — | TBD | APPROVED | GOV-1.1 |
 | DOC-006 | La note de calcul expose indices et coefficients. | Cahier cumulatif §14 | ADR-GOV-011 | specs/10-documents.md | — | — | TBD | APPROVED | GOV-1.1 |
 | DOC-007 | La note de calcul expose groupes et total de révision. | Cahier cumulatif §14 | ADR-GOV-011 | specs/10-documents.md | — | — | TBD | APPROVED | GOV-1.1 |
@@ -309,3 +323,45 @@ changement de données de production n'est inclus.
 
 L'import Excel/CSV complet, les snapshots `StatementItem` et le moteur de
 révision restent hors périmètre et ne sont pas introduits par LOT 2B.
+
+## Référentiel V1 des indices
+
+| Exigence | Implémentation | Preuve | Statut |
+|---|---|---|---|
+| IDX-001 | `IndexDefinition`, `IndexPublication`, `MonthlyIndexValue` | migration 0008, tests repository | IMPLEMENTED |
+| IDX-002 | Decimal et unicité code/année/mois | contrainte DB et tests | IMPLEMENTED |
+| IDX-003 | Import local idempotent avec `PENDING_VALIDATION` | `import_index_publication` | IMPLEMENTED |
+| IDX-004 | Résolution exacte sans fallback mensuel | `resolve_index`, `resolve_base_index` | IMPLEMENTED |
+| IDX-005 | API et écran Indices / Barèmes | routes markets et `IndicesPage` | IMPLEMENTED |
+
+## API-02 — staging externe
+
+| Exigence | Implémentation | Migration | Tests / preuve | Statut |
+|---|---|---|---|---|
+| IMP-API-001 | Client read-only et normalisation Decimal | — | tests client mockés | IMPLEMENTED / TESTED |
+| IMP-API-002 | `ExternalIndexStaging`, provenance, hash, changement de source et statuts | `markets/0010_externalindexstaging.py`, `0011_externalindexstaging_change_trace.py` | tests staging/idempotence | IMPLEMENTED / TESTED |
+| IMP-API-003 | Synchronisation explicite staging-only | — | commande dry-run, zéro écriture `MonthlyIndexValue` | IMPLEMENTED / TESTED |
+| IMP-API-004 | Comparaison catalogue, local et évolution | — | rapports `MATCHED`, `CONFLICT`, `MISSING_LOCAL` | IMPLEMENTED / TESTED |
+| IMP-API-005 | Consultation authentifiée filtrée | — | API staging et écran Indices | IMPLEMENTED / TESTED |
+
+## IDX-01 — promotion contrôlée
+
+| Exigence | Implémentation | Migration | Tests / preuve | Statut |
+|---|---|---|---|---|
+| Promotion explicite et idempotente | `markets/promotion.py`, `promote_revision_indices` | — | dry-run, apply ciblé, relance sans doublon | IMPLEMENTED / TESTED |
+| Source externe distincte de l'officiel | `IndexPublication.source_type` | `markets/0012_indexpublication_source_type.py` | publication `EXTERNAL_SECONDARY` pending | IMPLEMENTED / TESTED |
+| Protection des valeurs locales | aucune mise à jour automatique des conflits | — | tests conflit et valeur validée | IMPLEMENTED / TESTED |
+
+Règle d'architecture : `EXTERNAL API != OFFICIAL LOCAL VALUE` et
+`SYNC != VALIDATION`.
+
+## IDX-02 — validation documentaire officielle
+
+| Exigence | Implémentation | Migration | Tests / preuve | Statut |
+|---|---|---|---|---|
+| Hiérarchie OFFICIAL / EXTERNAL_SECONDARY / MANUAL_VALIDATED | `IndexPublication.source_type`, écran et serializers | 0012 | promotion + API/frontend | IMPLEMENTED |
+| Document officiel, SHA256 et extraction revue | `IndexSourceDocument`, `RawIndexExtraction`, `OfficialExtractedValue` | 0013 | hash, extraction Decimal, document ambigu | IMPLEMENTED / TESTED |
+| Comparaison OFFICIAL/API/local | `OfficialIndexValidationService`, `IndexValidationComparison` | 0013 | classifications triple, conflits | IMPLEMENTED / TESTED |
+| Validation contrôlée et idempotente | `validate_official_indices --dry-run/--apply`, audit append-only | 0013 | duplicate, PENDING→DEFINITIVE, local protégé | IMPLEMENTED / TESTED |
+| Résolution exacte sans fallback | `resolve_index`, `resolve_base_index` | — | base marché / mois absent | IMPLEMENTED / TESTED |
+| Contrôle des six barèmes ciblés | dry-run ciblé des six PDF, archive non traitée en masse | — | BAT3 assertions de contrôle | READY FOR REVIEW |

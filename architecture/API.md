@@ -146,3 +146,17 @@ L'import futur aura ses endpoints propres sous un espace
 `/api/markets/{market_id}/price-schedule/imports/` et suivra upload,
 mapping, aperçu, validation puis import. Aucun endpoint d'import n'est
 implémenté dans le LOT 2B de conception.
+
+## API-02 — indices externes
+
+- `GET /api/indices/staging/` : consultation authentifiée en lecture seule ;
+- filtres : `year`, `month`, `external_code`, `comparison_status` et
+  `validation_status`.
+
+La commande `sync_revision_indices` écrit uniquement dans
+`ExternalIndexStaging`. Aucun endpoint de promotion n'est exposé dans
+API-02. `EXTERNAL API != OFFICIAL LOCAL VALUE` et `SYNC != VALIDATION`.
+
+La commande `promote_revision_indices` reste hors API HTTP, en dry-run par
+défaut. L'écriture exige `--apply`, est ciblable par année/code et ne remplace
+jamais une valeur locale différente.

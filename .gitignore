@@ -59,6 +59,7 @@ secrets/
 media/
 uploads/
 staticfiles/
+imports/indices/
 
 # IDE / OS
 .idea/

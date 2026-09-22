@@ -6,6 +6,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 COPY requirements.txt ./
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-fra \
+    && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 RUN useradd --create-home --uid 10001 appuser && chown -R appuser:appuser /app

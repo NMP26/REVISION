@@ -3,8 +3,98 @@ from django.db import transaction
 
 from .models import (
     FormulaTemplate, FormulaTerm, Market, MarketFormula, PriceItem, PriceSchedule,
-    RevisionGroup,
+    MonthlyIndexValue, RevisionGroup,
 )
+
+
+def resolve_index(index_code, year, month):
+    """Resolve one exact code/month. There is intentionally no month fallback."""
+    value = MonthlyIndexValue.objects.select_related("index_definition", "publication").filter(
+        index_definition__code=index_code,
+        year=year,
+        month=month,
+    ).first()
+    if value is None:
+        return {"status": "INDEX_NOT_AVAILABLE", "code": index_code, "index_code": index_code, "year": year, "month": month, "base_year": year, "base_month": month, "value": None, "publication": None, "source_type": None, "source_reference": None}
+    return {
+        "status": value.status,
+        "code": value.index_definition.code,
+        "index_code": value.index_definition.code,
+        "designation": value.index_definition.designation,
+        "domain": value.index_definition.domain,
+        "year": value.year,
+        "month": value.month,
+        "value": str(value.value),
+        "base_year": value.year,
+        "base_month": value.month,
+        "publication": value.publication.document_reference,
+        "source_type": value.publication.source_type,
+        "source_reference": value.source_reference or value.source_document or value.publication.document_reference,
+        "source": {
+            "publication_id": str(value.publication_id),
+            "document_reference": value.publication.document_reference,
+            "source_type": value.publication.source_type,
+            "source_reference": value.source_reference or value.source_document or value.publication.document_reference,
+            "source_url": value.source_url or value.publication.source_url or None,
+            "publication_date": value.publication.publication_date,
+        },
+    }
+
+
+def resolve_base_index(market, formula=None):
+    """Resolve the V1 base index from the offer deadline and formula term."""
+    if formula is None:
+        group = market.global_revision_group
+        formula = group.formulas.exclude(status="INACTIVE").order_by("-version_number").first() if group else None
+    term = formula.terms.order_by("position").first() if formula else None
+    if market.date_limite_remise_offres is None:
+        return {"index_code": term.index_code if term else None, "base_year": None, "base_month": None, "value": None, "status": "DATE_MISSING", "publication": None, "source_type": None, "source_reference": None, "base_index_code": term.index_code if term else None, "base_index_value": None, "base_index_status": "DATE_MISSING", "base_index_source": None}
+    base_month = market.date_limite_remise_offres
+    resolved = resolve_index(term.index_code, base_month.year, base_month.month) if term else {"status": "INDEX_NOT_AVAILABLE"}
+    source = resolved.get("source")
+    return {
+        "index_code": term.index_code if term else None,
+        "base_year": base_month.year,
+        "base_month_number": base_month.month,
+        "value": resolved.get("value"),
+        "status": resolved.get("status", "INDEX_NOT_AVAILABLE"),
+        "publication": resolved.get("publication"),
+        "source_type": resolved.get("source_type"),
+        "source_reference": resolved.get("source_reference"),
+        "base_month": base_month.strftime("%Y-%m"),
+        "base_index_code": term.index_code if term else None,
+        "base_index_value": resolved.get("value"),
+        "base_index_status": resolved.get("status", "INDEX_NOT_AVAILABLE"),
+        "base_index_source": source.get("document_reference") if source else None,
+        "base_index_publication": source,
+    }
+
+
+def resolve_v1_base_index(*, market, formula):
+    return resolve_base_index(market, formula)
+
+
+def activate_v1_formula(*, formula):
+    """Select one formula for a SINGLE market while preserving prior versions.
+
+    This is deliberately scoped to the V1 simple journey.  MULTIPLE markets
+    keep their existing group/formula lifecycle for the future LOT 2B flow.
+    """
+    market = Market.objects.select_for_update().get(pk=formula.revision_group.market_id)
+    if market.formula_structure != Market.FormulaStructure.SINGLE:
+        return formula
+
+    active_formulas = MarketFormula.objects.select_for_update().filter(
+        revision_group__market_id=market.pk,
+    ).exclude(status=MarketFormula.Status.INACTIVE).exclude(pk=formula.pk)
+    for previous in active_formulas:
+        previous.status = MarketFormula.Status.INACTIVE
+        previous.save(update_fields=["status", "updated_at"])
+
+    market.revision_application_mode = Market.RevisionApplicationMode.GLOBAL_FORMULA
+    market.global_revision_group_id = formula.revision_group_id
+    market.save(update_fields=["revision_application_mode", "global_revision_group", "updated_at"])
+    return formula
 
 
 @transaction.atomic
@@ -21,6 +111,15 @@ def copy_formula_template(*, template_id, revision_group_id, user):
     group = RevisionGroup.objects.select_for_update().select_related("market").filter(id=revision_group_id).first()
     if group is None:
         raise ValidationError({"revision_group": "Groupe de révision introuvable."})
+
+    market = Market.objects.select_for_update().get(pk=group.market_id)
+    if market.formula_structure == Market.FormulaStructure.SINGLE:
+        existing = MarketFormula.objects.select_for_update().filter(
+            revision_group__market_id=market.pk,
+            source_template_id=template.pk,
+        ).exclude(status=MarketFormula.Status.INACTIVE).order_by("-version_number").first()
+        if existing is not None:
+            return activate_v1_formula(formula=existing)
 
     last_version = group.formulas.order_by("-version_number").values_list("version_number", flat=True).first()
     formula = MarketFormula.objects.create(
@@ -50,7 +149,7 @@ def copy_formula_template(*, template_id, revision_group_id, user):
             base_source=term.base_source,
             reference_note=term.reference_note,
         )
-    return formula
+    return activate_v1_formula(formula=formula)
 
 
 @transaction.atomic

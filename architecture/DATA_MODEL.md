@@ -74,6 +74,27 @@ Les relations vers `RevisionGroup`, `PriceSchedule`, `PriceItem` et
 `MarketFormula` restent compatibles avec les lots futurs, sans être
 créées par cette phase.
 
+## Décompte V1 et ventilation temporelle
+
+Le décompte V1 est une enveloppe HT simple portant seulement le numéro, la
+date, le montant HT et l'observation facultative. Il ne doit pas détourner
+`StatementItem` ou `PriceItem` pour représenter la ventilation temporelle.
+La structure conceptuelle dédiée est :
+
+```text
+Statement
+  └── MonthlyWorkAllocation
+        year
+        month
+        work_days
+```
+
+`MonthlyWorkAllocation` conserve aussi les mois à zéro jour. Les montants
+mensuels dérivés sont calculés en `Decimal` et leur somme doit égaler
+exactement le montant HT du `Statement`, avec correction explicite de
+l'écart d'arrondi sur la dernière ligne si nécessaire. Cette description
+est architecturale uniquement ; elle ne crée ni modèle Django ni migration.
+
 ## Conception LOT 2A — formules contractuelles
 
 Cette section est une proposition de conception ; elle n'est ni un modèle
@@ -189,8 +210,21 @@ Les templates portent une provenance `OFFICIAL`, `CONTRACT_EXAMPLE` ou
 `INTERNAL`, sans confondre `OFFICIAL` et `VERIFIED`. Aucun template officiel
 n'est préchargé sans vérification documentaire.
 
-`IndexDefinition` reste une dépendance architecturale future. LOT 2A.1 ne
-crée ni `IndexValue`, ni valeur mensuelle, ni barème, ni import.
+## Référentiel V1 des indices
+
+Le référentiel partagé est additif et indépendant des marchés :
+
+```text
+IndexDefinition 1 ─── N MonthlyIndexValue N ─── 1 IndexPublication
+```
+
+`IndexDefinition` porte le code, la désignation, la famille et l'état actif.
+`IndexPublication` trace le barème mensuel source. `MonthlyIndexValue` porte
+une valeur `NUMERIC(18,8)`/Decimal, son statut (`DEFINITIVE`, `PROVISIONAL`
+ou `PENDING_VALIDATION`) et la publication source. La contrainte unique est
+`(index_definition, year, month)`. La résolution recherche exactement le
+code et le mois demandés : aucun mois précédent/suivant n'est utilisé.
+L'import local est idempotent et toute ambiguïté reste en validation différée.
 
 ## Permissions
 
@@ -241,3 +275,20 @@ reste immuable et une évolution crée une nouvelle `MarketFormula` dans le
 même groupe. Les futurs `StatementItem` copieront, au moment de la
 validation, les données du prix, son statut, son groupe et la formule/version
 applicable dans un snapshot ; LOT 2B ne crée pas ces modèles.
+
+## API-02 — staging des indices externes
+
+`ExternalIndexStaging` est séparé du référentiel officiel. Il conserve le
+fournisseur, l'endpoint, la récupération, le code, la période, la valeur
+brute, sa normalisation Decimal, un hash du payload, la comparaison locale et
+l'état de validation. La clé métier est
+`(source_provider, source_endpoint, external_code, year, month)`.
+
+`revisiondesprix.ma` reste une source candidate : elle ne crée pas
+automatiquement d'`IndexDefinition`, ne modifie pas `MonthlyIndexValue` et ne
+rend jamais une valeur `DEFINITIVE`. `SYNC` et `VALIDATION` sont distincts.
+
+IDX-01 ajoute `IndexPublication.source_type` (`OFFICIAL`,
+`EXTERNAL_SECONDARY`, `MANUAL_VALIDATED`). Une promotion externe crée une
+publication `EXTERNAL_SECONDARY` en `PENDING_VALIDATION`, jamais une fausse
+publication officielle.

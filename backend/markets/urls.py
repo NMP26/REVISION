@@ -7,6 +7,8 @@ from .views import (
     FormulaTemplateDetailView, FormulaTemplateListView, MarketFormulaFromTemplateView,
     PriceAssignmentView, PriceItemDetailView, PriceItemListCreateView, PriceMatrixView,
     PriceScheduleDetailView, PriceScheduleView, RevisionApplicationView,
+    IndexDefinitionListView, IndexPublicationListView, MonthlyIndexValueDetailView, MonthlyIndexValueListView, MarketBaseIndexView,
+    ExternalIndexStagingListView, MonthlyWorkAllocationDetailView, MonthlyWorkAllocationListCreateView, StatementCalculationView, StatementDetailView, StatementListCreateView,
 )
 
 urlpatterns = [
@@ -28,4 +30,15 @@ urlpatterns = [
     path("markets/<uuid:market_id>/revision-groups/<uuid:group_id>/formulas/<uuid:formula_id>/", MarketFormulaDetailView.as_view(), name="market-formula-detail"),
     path("formula-templates/", FormulaTemplateListView.as_view(), name="formula-template-list"),
     path("formula-templates/<uuid:template_id>/", FormulaTemplateDetailView.as_view(), name="formula-template-detail"),
+    path("indices/definitions/", IndexDefinitionListView.as_view(), name="index-definition-list"),
+    path("indices/publications/", IndexPublicationListView.as_view(), name="index-publication-list"),
+    path("indices/values/", MonthlyIndexValueListView.as_view(), name="monthly-index-value-list"),
+    path("indices/values/<uuid:value_id>/", MonthlyIndexValueDetailView.as_view(), name="monthly-index-value-detail"),
+    path("indices/staging/", ExternalIndexStagingListView.as_view(), name="external-index-staging-list"),
+    path("markets/<uuid:market_id>/base-index/", MarketBaseIndexView.as_view(), name="market-base-index"),
+    path("markets/<uuid:market_id>/statements/", StatementListCreateView.as_view(), name="statement-list-create"),
+    path("markets/<uuid:market_id>/statements/<uuid:statement_id>/", StatementDetailView.as_view(), name="statement-detail"),
+    path("markets/<uuid:market_id>/statements/<uuid:statement_id>/allocations/", MonthlyWorkAllocationListCreateView.as_view(), name="allocation-list-create"),
+    path("markets/<uuid:market_id>/statements/<uuid:statement_id>/allocations/<uuid:allocation_id>/", MonthlyWorkAllocationDetailView.as_view(), name="allocation-detail"),
+    path("markets/<uuid:market_id>/statements/<uuid:statement_id>/calculation/", StatementCalculationView.as_view(), name="statement-calculation"),
 ]

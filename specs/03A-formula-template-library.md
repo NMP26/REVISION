@@ -130,7 +130,12 @@ Le passage à `VERIFIED` exige une source, une référence documentaire et une
 trace de vérification (`verification_status`, `verified_at`, `verified_by`)
 selon le processus approuvé.
 
-La bibliothèque ne précharge actuellement aucun template `VERIFIED`.
+Le parcours V1-A précharge, par migration additive locale, les templates
+simples validés dans le catalogue V1 : `BAT1` à `BAT6`, `SF1` à `SF6`,
+`OA1` à `OA5`, `CEP1` à `CEP3`, `REP`, `TR1` à `TR6bis`. Les expressions et
+désignations sont celles validées pour ce périmètre ; aucune valeur d'indice
+courante ou valeur de base n'est inventée. Les autres templates futurs ne
+sont pas ajoutés par V1-A.
 
 ## 6. Indices
 
@@ -200,9 +205,9 @@ Les sources actuellement intégrées établissent la forme générique
 et la somme des coefficients égale à 1. Le cas mono-index générique est
 également documenté.
 
-La formule `K = 0,15 + 0,85 × BAT3/BAT3₀` reste un exemple de fixture ou de
-contrat non qualifié comme formule officielle. Aucun template BAT3 n'est
-préchargé et BAT3 ne doit jamais être codé en dur.
+La formule `K = 0,15 + 0,85 × BAT3/BAT3₀` est affichée comme expression de
+catalogue V1, sans codage spécial dans le moteur de calcul. BAT3 reste un
+code de catalogue parmi les autres indices contractuels.
 
 `PV-REG-001` reste `PENDING_VALIDATION`.
 

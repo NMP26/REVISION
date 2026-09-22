@@ -10,14 +10,15 @@ from accounts.views import error_response
 from companies.models import Company
 from companies.permissions import can_read_global_resources, can_update, get_membership
 
-from .models import FormulaTemplate, Market, MarketLot, PriceItem, PriceSchedule
+from .models import ExternalIndexStaging, FormulaTemplate, IndexDefinition, IndexPublication, Market, MarketLot, MonthlyIndexValue, MonthlyWorkAllocation, PriceItem, PriceSchedule, Statement
 from .permissions import can_update_market
 from .serializers import (
     FormulaTemplateSerializer, MarketFormulaSerializer, MarketLotSerializer, MarketSerializer,
     PriceItemSerializer, PriceScheduleSerializer, RevisionApplicationSerializer,
-    RevisionGroupSerializer,
+    ExternalIndexStagingSerializer, IndexDefinitionSerializer, IndexPublicationSerializer, MonthlyIndexValueSerializer, MonthlyWorkAllocationSerializer, RevisionGroupSerializer, StatementSerializer,
 )
-from .services import bulk_assign_price_items, copy_formula_template, create_price_item, create_price_schedule, set_revision_application, update_price_item
+from .services import bulk_assign_price_items, copy_formula_template, create_price_item, create_price_schedule, resolve_base_index, resolve_index, resolve_v1_base_index, set_revision_application, update_price_item
+from .statement_services import calculate_statement_preview
 from .models import MarketFormula, RevisionGroup
 
 
@@ -30,6 +31,239 @@ def accessible_markets(user):
     if user.is_superuser:
         return queryset
     return queryset.filter(Q(company__memberships__user=user, company__memberships__active=True) | Q(consortium__members__company__memberships__user=user, consortium__members__company__memberships__active=True, consortium__members__active=True)).distinct()
+
+
+class IndexDefinitionListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not can_read_global_resources(request.user):
+            return error_response("PERMISSION_DENIED", "Une Membership active est requise.", http_status=status.HTTP_403_FORBIDDEN)
+        queryset = IndexDefinition.objects.all()
+        if request.query_params.get("code"):
+            queryset = queryset.filter(code__icontains=request.query_params["code"].strip())
+        if request.query_params.get("domain"):
+            queryset = queryset.filter(domain__iexact=request.query_params["domain"].strip())
+        if request.query_params.get("active") in {"true", "false"}:
+            queryset = queryset.filter(active=request.query_params["active"] == "true")
+        return Response(IndexDefinitionSerializer(queryset, many=True).data)
+
+
+class IndexPublicationListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not can_read_global_resources(request.user):
+            return error_response("PERMISSION_DENIED", "Une Membership active est requise.", http_status=status.HTTP_403_FORBIDDEN)
+        queryset = IndexPublication.objects.all()
+        if request.query_params.get("year"):
+            queryset = queryset.filter(year=request.query_params["year"])
+        if request.query_params.get("month"):
+            queryset = queryset.filter(month=request.query_params["month"])
+        if request.query_params.get("status"):
+            queryset = queryset.filter(status=request.query_params["status"])
+        return Response(IndexPublicationSerializer(queryset, many=True).data)
+
+
+class MonthlyIndexValueListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not can_read_global_resources(request.user):
+            return error_response("PERMISSION_DENIED", "Une Membership active est requise.", http_status=status.HTTP_403_FORBIDDEN)
+        queryset = MonthlyIndexValue.objects.select_related("index_definition", "publication")
+        if request.query_params.get("year"):
+            queryset = queryset.filter(year=request.query_params["year"])
+        if request.query_params.get("month"):
+            queryset = queryset.filter(month=request.query_params["month"])
+        if request.query_params.get("code"):
+            queryset = queryset.filter(index_definition__code__icontains=request.query_params["code"].strip())
+        if request.query_params.get("domain"):
+            queryset = queryset.filter(index_definition__domain__iexact=request.query_params["domain"].strip())
+        if request.query_params.get("status"):
+            queryset = queryset.filter(status=request.query_params["status"])
+        return Response(MonthlyIndexValueSerializer(queryset, many=True).data)
+
+
+class MonthlyIndexValueDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, value_id):
+        if not can_read_global_resources(request.user):
+            return error_response("PERMISSION_DENIED", "Une Membership active est requise.", http_status=status.HTTP_403_FORBIDDEN)
+        value = MonthlyIndexValue.objects.select_related("index_definition", "publication").filter(pk=value_id).first()
+        if value is None:
+            return error_response("NOT_FOUND", "Valeur d'index introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        return Response(MonthlyIndexValueSerializer(value).data)
+
+
+class ExternalIndexStagingListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not can_read_global_resources(request.user):
+            return error_response("PERMISSION_DENIED", "Une Membership active est requise.", http_status=status.HTTP_403_FORBIDDEN)
+        queryset = ExternalIndexStaging.objects.select_related("matched_index_definition")
+        for field in ("year", "month", "external_code", "comparison_status", "validation_status"):
+            value = request.query_params.get(field)
+            if value:
+                lookup = "external_code__icontains" if field == "external_code" else field
+                queryset = queryset.filter(**{lookup: value.strip() if isinstance(value, str) else value})
+        try:
+            page = max(1, int(request.query_params.get("page", "1")))
+            page_size = min(100, max(1, int(request.query_params.get("page_size", "50"))))
+        except ValueError:
+            return error_response("VALIDATION_ERROR", "Les paramètres de pagination sont invalides.", http_status=status.HTTP_400_BAD_REQUEST)
+        total = queryset.count()
+        start = (page - 1) * page_size
+        return Response({"results": ExternalIndexStagingSerializer(queryset[start:start + page_size], many=True).data, "count": total, "page": page, "page_size": page_size, "has_next": start + page_size < total})
+
+
+class MarketBaseIndexView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, market_id):
+        market = accessible_market(request.user, market_id)
+        if market is None:
+            return error_response("NOT_FOUND", "Marché introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        formula = None
+        if market.global_revision_group_id:
+            formula = market.global_revision_group.formulas.exclude(status=MarketFormula.Status.INACTIVE).order_by("-version_number").first()
+        return Response(resolve_base_index(market, formula))
+
+
+class StatementListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_market(self, request, market_id):
+        return accessible_market(request.user, market_id)
+
+    def get(self, request, market_id):
+        market = self.get_market(request, market_id)
+        if market is None:
+            return error_response("NOT_FOUND", "Marché introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        statements = Statement.objects.filter(market=market).prefetch_related("monthly_allocations")
+        return Response(StatementSerializer(statements, many=True).data)
+
+    @transaction.atomic
+    def post(self, request, market_id):
+        market = self.get_market(request, market_id)
+        if market is None:
+            return error_response("NOT_FOUND", "Marché introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        if not can_update_market(request.user, market):
+            return error_response("PERMISSION_DENIED", "Action non autorisée.", http_status=status.HTTP_403_FORBIDDEN)
+        serializer = StatementSerializer(data=request.data)
+        if not serializer.is_valid():
+            return error_response("VALIDATION_ERROR", "Les données du décompte sont invalides.", serializer_errors(serializer))
+        try:
+            statement = serializer.save(market=market)
+        except IntegrityError as exc:
+            if "uniq_statement_market_number" in str(exc):
+                return error_response("VALIDATION_ERROR", "Les données du décompte sont invalides.", {"number": ["Ce numéro existe déjà dans ce marché."]})
+            raise
+        return Response(StatementSerializer(statement).data, status=status.HTTP_201_CREATED)
+
+
+class StatementDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_statement(self, request, market_id, statement_id):
+        return Statement.objects.filter(pk=statement_id, market=accessible_market(request.user, market_id)).first()
+
+    def get(self, request, market_id, statement_id):
+        statement = self.get_statement(request, market_id, statement_id)
+        if statement is None:
+            return error_response("NOT_FOUND", "Décompte introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        return Response(StatementSerializer(statement).data)
+
+    def patch(self, request, market_id, statement_id):
+        return self._update(request, market_id, statement_id, partial=True)
+
+    def put(self, request, market_id, statement_id):
+        return self._update(request, market_id, statement_id, partial=False)
+
+    def _update(self, request, market_id, statement_id, partial):
+        statement = self.get_statement(request, market_id, statement_id)
+        if statement is None:
+            return error_response("NOT_FOUND", "Décompte introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        if not can_update_market(request.user, statement.market):
+            return error_response("PERMISSION_DENIED", "Action non autorisée.", http_status=status.HTTP_403_FORBIDDEN)
+        serializer = StatementSerializer(statement, data=request.data, partial=partial)
+        if not serializer.is_valid():
+            return error_response("VALIDATION_ERROR", "Les données du décompte sont invalides.", serializer_errors(serializer))
+        serializer.save()
+        return Response(StatementSerializer(statement).data)
+
+    def delete(self, request, market_id, statement_id):
+        statement = self.get_statement(request, market_id, statement_id)
+        if statement is None:
+            return error_response("NOT_FOUND", "Décompte introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        if not can_update_market(request.user, statement.market):
+            return error_response("PERMISSION_DENIED", "Action non autorisée.", http_status=status.HTTP_403_FORBIDDEN)
+        statement.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class MonthlyWorkAllocationListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_statement(self, request, market_id, statement_id):
+        return Statement.objects.filter(pk=statement_id, market=accessible_market(request.user, market_id)).first()
+
+    def get(self, request, market_id, statement_id):
+        statement = self.get_statement(request, market_id, statement_id)
+        if statement is None:
+            return error_response("NOT_FOUND", "Décompte introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        return Response(MonthlyWorkAllocationSerializer(statement.monthly_allocations.all(), many=True).data)
+
+    def post(self, request, market_id, statement_id):
+        statement = self.get_statement(request, market_id, statement_id)
+        if statement is None:
+            return error_response("NOT_FOUND", "Décompte introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        if not can_update_market(request.user, statement.market):
+            return error_response("PERMISSION_DENIED", "Action non autorisée.", http_status=status.HTTP_403_FORBIDDEN)
+        serializer = MonthlyWorkAllocationSerializer(data=request.data)
+        if not serializer.is_valid():
+            return error_response("VALIDATION_ERROR", "La répartition mensuelle est invalide.", serializer_errors(serializer))
+        try:
+            allocation = serializer.save(statement=statement)
+        except IntegrityError as exc:
+            if "uniq_work_allocation_statement_month" in str(exc):
+                return error_response("VALIDATION_ERROR", "Ce mois existe déjà pour ce décompte.", {"month": ["Un seul enregistrement par mois est autorisé."]})
+            raise
+        return Response(MonthlyWorkAllocationSerializer(allocation).data, status=status.HTTP_201_CREATED)
+
+
+class MonthlyWorkAllocationDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_allocation(self, request, market_id, statement_id, allocation_id):
+        return MonthlyWorkAllocation.objects.filter(pk=allocation_id, statement__pk=statement_id, statement__market=accessible_market(request.user, market_id)).first()
+
+    def patch(self, request, market_id, statement_id, allocation_id):
+        allocation = self.get_allocation(request, market_id, statement_id, allocation_id)
+        if allocation is None:
+            return error_response("NOT_FOUND", "Répartition mensuelle introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        if not can_update_market(request.user, allocation.statement.market):
+            return error_response("PERMISSION_DENIED", "Action non autorisée.", http_status=status.HTTP_403_FORBIDDEN)
+        serializer = MonthlyWorkAllocationSerializer(allocation, data=request.data, partial=True)
+        if not serializer.is_valid():
+            return error_response("VALIDATION_ERROR", "La répartition mensuelle est invalide.", serializer_errors(serializer))
+        serializer.save()
+        return Response(MonthlyWorkAllocationSerializer(allocation).data)
+
+
+class StatementCalculationView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, market_id, statement_id):
+        statement = Statement.objects.select_related("market", "market__global_revision_group").prefetch_related("monthly_allocations", "market__global_revision_group__formulas__terms").filter(pk=statement_id, market=accessible_market(request.user, market_id)).first()
+        if statement is None:
+            return error_response("NOT_FOUND", "Décompte introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        try:
+            return Response(calculate_statement_preview(statement))
+        except ValidationError as exc:
+            return error_response("CALCULATION_BLOCKED", "Le calcul est bloqué.", {"calculation": exc.messages})
 
 
 class MarketListCreateView(APIView):
@@ -172,12 +406,20 @@ class RevisionApplicationView(APIView):
         formula = None
         if group is not None:
             formula = group.formulas.exclude(status=MarketFormula.Status.INACTIVE).order_by("-version_number").first()
+        base_index = resolve_v1_base_index(market=market, formula=formula) if formula is not None and market.formula_structure == Market.FormulaStructure.SINGLE else {
+            "base_month": None,
+            "base_index_code": None,
+            "base_index_value": None,
+            "base_index_status": None,
+            "base_index_source": None,
+        }
         return Response({
             "revision_application_mode": market.revision_application_mode,
             "global_revision_group": group.id if group else None,
             "global_formula": MarketFormulaSerializer(formula, context={"request": request}).data if formula else None,
             "price_schedule_required": market.revision_application_mode == Market.RevisionApplicationMode.PRICE_ASSIGNMENT,
             "updated_at": market.updated_at,
+            **base_index,
         })
 
     def post(self, request, market_id):

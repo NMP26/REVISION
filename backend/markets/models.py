@@ -261,6 +261,72 @@ class Market(models.Model):
         return self.market_number
 
 
+class Statement(models.Model):
+    """Simple V1 statement envelope; detailed BDP lines belong to future lots."""
+
+    class AllocationMethod(models.TextChoices):
+        ACTUAL_EXECUTION = "ACTUAL_EXECUTION", "Jours d'exécution saisis"
+        CALENDAR_DAY_PRORATA = "CALENDAR_DAY_PRORATA", "Prorata de jours calendaires"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    market = models.ForeignKey(Market, on_delete=models.PROTECT, related_name="statements")
+    number = models.PositiveIntegerField()
+    date = models.DateField()
+    amount_ht = models.DecimalField(max_digits=18, decimal_places=2, validators=[MinValueValidator(Decimal("0"))])
+    observation = models.TextField(blank=True)
+    allocation_method = models.CharField(max_length=32, choices=AllocationMethod.choices, default=AllocationMethod.ACTUAL_EXECUTION)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "markets_statement"
+        ordering = ["number"]
+        constraints = [models.UniqueConstraint(fields=["market", "number"], name="uniq_statement_market_number")]
+
+    def clean(self):
+        errors = {}
+        if self.number <= 0:
+            errors["number"] = "Le numéro du décompte doit être strictement positif."
+        if self.amount_ht < Decimal("0"):
+            errors["amount_ht"] = "Le montant HT ne peut pas être négatif."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+
+class MonthlyWorkAllocation(models.Model):
+    """User-entered execution days retained even when the value is zero."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    statement = models.ForeignKey(Statement, on_delete=models.CASCADE, related_name="monthly_allocations")
+    year = models.PositiveSmallIntegerField()
+    month = models.PositiveSmallIntegerField(validators=[MinValueValidator(1), MaxValueValidator(12)])
+    work_days = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(Decimal("0"))])
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "markets_monthlyworkallocation"
+        ordering = ["year", "month"]
+        constraints = [models.UniqueConstraint(fields=["statement", "year", "month"], name="uniq_work_allocation_statement_month")]
+
+    def clean(self):
+        errors = {}
+        if self.work_days < Decimal("0"):
+            errors["work_days"] = "Le nombre de jours ne peut pas être négatif."
+        if not 1 <= self.month <= 12:
+            errors["month"] = "Le mois doit être compris entre 1 et 12."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+
 class MarketLot(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     market = models.ForeignKey(Market, on_delete=models.CASCADE, related_name="lots")
@@ -481,6 +547,319 @@ class RevisionGroup(models.Model):
 
     def __str__(self):
         return f"{self.market.market_number} — {self.name}"
+
+
+class IndexDefinition(models.Model):
+    """Stable definition of an official index code."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    code = models.CharField(max_length=120, unique=True)
+    designation = models.CharField(max_length=255)
+    domain = models.CharField(max_length=120, blank=True)
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "markets_indexdefinition"
+        ordering = ["code"]
+
+    def __str__(self):
+        return f"{self.code} — {self.designation}"
+
+
+class IndexPublication(models.Model):
+    class SourceType(models.TextChoices):
+        OFFICIAL = "OFFICIAL", "Officielle"
+        EXTERNAL_SECONDARY = "EXTERNAL_SECONDARY", "Source externe secondaire"
+        MANUAL_VALIDATED = "MANUAL_VALIDATED", "Validation manuelle"
+
+    class Status(models.TextChoices):
+        IMPORTED = "IMPORTED", "Importée"
+        VALIDATED = "VALIDATED", "Validée"
+        PENDING_VALIDATION = "PENDING_VALIDATION", "Validation en attente"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    year = models.PositiveSmallIntegerField()
+    month = models.PositiveSmallIntegerField(validators=[MinValueValidator(1), MaxValueValidator(12)])
+    publication_date = models.DateField(null=True, blank=True)
+    source_url = models.URLField(max_length=500, blank=True)
+    document_reference = models.CharField(max_length=255)
+    document_hash = models.CharField(max_length=64, blank=True)
+    source_type = models.CharField(max_length=32, choices=SourceType.choices, default=SourceType.OFFICIAL)
+    status = models.CharField(max_length=30, choices=Status.choices, default=Status.IMPORTED)
+    imported_at = models.DateTimeField(auto_now_add=True)
+    validated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "markets_indexpublication"
+        ordering = ["-year", "-month"]
+        constraints = [models.UniqueConstraint(fields=["year", "month", "source_type"], name="uniq_indexpublication_period_source")]
+
+    def __str__(self):
+        return f"{self.year:04d}-{self.month:02d} — {self.document_reference}"
+
+
+class MonthlyIndexValue(models.Model):
+    class Status(models.TextChoices):
+        DEFINITIVE = "DEFINITIVE", "Définitive"
+        PROVISIONAL = "PROVISIONAL", "Provisoire"
+        PENDING_VALIDATION = "PENDING_VALIDATION", "Validation en attente"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    index_definition = models.ForeignKey(IndexDefinition, on_delete=models.PROTECT, related_name="monthly_values")
+    publication = models.ForeignKey(IndexPublication, on_delete=models.PROTECT, related_name="values")
+    year = models.PositiveSmallIntegerField()
+    month = models.PositiveSmallIntegerField(validators=[MinValueValidator(1), MaxValueValidator(12)])
+    value = models.DecimalField(max_digits=18, decimal_places=8)
+    status = models.CharField(max_length=30, choices=Status.choices, default=Status.PENDING_VALIDATION)
+    source_url = models.URLField(max_length=500, blank=True)
+    source_document = models.CharField(max_length=255, blank=True)
+    validated_at = models.DateTimeField(null=True, blank=True)
+    source_reference = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "markets_monthlyindexvalue"
+        ordering = ["-year", "-month", "index_definition__code"]
+        constraints = [
+            models.UniqueConstraint(fields=["index_definition", "year", "month"], name="uniq_monthlyindex_definition_month"),
+            models.CheckConstraint(condition=models.Q(value__gt=0), name="monthlyindexvalue_positive"),
+        ]
+        indexes = [models.Index(fields=["index_definition", "year", "month", "status"], name="monthlyindex_lookup_idx")]
+
+    def clean(self):
+        if self.publication_id and (self.year != self.publication.year or self.month != self.publication.month):
+            errors = {"publication": "La publication source doit correspondre au même mois que la valeur."}
+        else:
+            errors = {}
+        if not 1 <= self.month <= 12:
+            errors["month"] = "Le mois doit être compris entre 1 et 12."
+        if self.value <= 0:
+            errors["value"] = "La valeur de l’index doit être strictement positive."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+
+class IndexSourceDocument(models.Model):
+    """Immutable audit metadata for a source PDF kept outside the repository."""
+
+    class ExtractionMethod(models.TextChoices):
+        NATIVE_TEXT = "NATIVE_TEXT", "Texte natif"
+        TABLE_EXTRACTION = "TABLE_EXTRACTION", "Extraction de tableau"
+        OCR = "OCR", "OCR"
+        MANUAL_REVIEW_REQUIRED = "MANUAL_REVIEW_REQUIRED", "Revue manuelle requise"
+
+    class ExtractionStatus(models.TextChoices):
+        PROCESSED = "PROCESSED", "Traité"
+        PENDING_VALIDATION = "PENDING_VALIDATION", "Validation en attente"
+        ERROR = "ERROR", "Erreur"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sha256 = models.CharField(max_length=64, unique=True)
+    original_filename = models.CharField(max_length=255)
+    nominal_year = models.PositiveSmallIntegerField(null=True, blank=True)
+    nominal_month = models.PositiveSmallIntegerField(null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(12)])
+    file_size = models.BigIntegerField()
+    page_count = models.PositiveIntegerField(null=True, blank=True)
+    detected_periods = models.JSONField(default=list)
+    source_reference = models.CharField(max_length=1000)
+    source_url = models.URLField(max_length=500, blank=True)
+    extraction_method = models.CharField(max_length=32, choices=ExtractionMethod.choices)
+    extraction_status = models.CharField(max_length=32, choices=ExtractionStatus.choices)
+    retrieved_at = models.DateTimeField(auto_now_add=True, null=True)
+    processed_at = models.DateTimeField(auto_now_add=True)
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        db_table = "markets_indexsourcedocument"
+        ordering = ["original_filename"]
+
+
+class RawIndexExtraction(models.Model):
+    """Reviewable intermediate row; never bypasses normalization/validation."""
+
+    class Method(models.TextChoices):
+        NATIVE_TEXT = "NATIVE_TEXT", "Texte natif"
+        TABLE_EXTRACTION = "TABLE_EXTRACTION", "Extraction de tableau"
+        OCR = "OCR", "OCR"
+        MANUAL_REVIEW_REQUIRED = "MANUAL_REVIEW_REQUIRED", "Revue manuelle requise"
+
+    source_document = models.ForeignKey(IndexSourceDocument, on_delete=models.PROTECT, related_name="raw_extractions")
+    page_number = models.PositiveIntegerField(null=True, blank=True)
+    raw_code = models.CharField(max_length=120, blank=True)
+    raw_designation = models.TextField(blank=True)
+    raw_value = models.CharField(max_length=120, blank=True)
+    source_column = models.CharField(max_length=40, blank=True)
+    raw_status = models.CharField(max_length=40, blank=True)
+    extraction_method = models.CharField(max_length=32, choices=Method.choices)
+    confidence = models.DecimalField(max_digits=5, decimal_places=4, null=True, blank=True)
+    ambiguity = models.TextField(blank=True)
+    normalized_code = models.CharField(max_length=120, blank=True)
+    normalized_value = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True)
+    validation_status = models.CharField(max_length=32, default="PENDING_VALIDATION")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "markets_rawindexextraction"
+        indexes = [models.Index(fields=["source_document", "page_number"], name="raw_index_doc_page_idx")]
+
+
+class OfficialExtractedValue(models.Model):
+    """A reviewable value extracted from an official document, before promotion."""
+
+    class Status(models.TextChoices):
+        EXTRACTED = "EXTRACTED", "Extraite"
+        PENDING_VALIDATION = "PENDING_VALIDATION", "Validation en attente"
+        VALIDATED = "VALIDATED", "Validée"
+        CONFLICT = "CONFLICT", "Conflit"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    publication = models.ForeignKey(IndexPublication, on_delete=models.PROTECT, related_name="official_values")
+    source_document = models.ForeignKey(IndexSourceDocument, on_delete=models.PROTECT, related_name="official_values")
+    year = models.PositiveSmallIntegerField()
+    month = models.PositiveSmallIntegerField(validators=[MinValueValidator(1), MaxValueValidator(12)])
+    raw_code = models.CharField(max_length=120)
+    raw_designation = models.TextField(blank=True)
+    normalized_code = models.CharField(max_length=120, blank=True)
+    raw_value = models.CharField(max_length=120)
+    normalized_value = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True)
+    confidence = models.DecimalField(max_digits=5, decimal_places=4, null=True, blank=True)
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.PENDING_VALIDATION)
+    extraction_method = models.CharField(max_length=32)
+    page_number = models.PositiveIntegerField(null=True, blank=True)
+    source_reference = models.CharField(max_length=1000, blank=True)
+    ambiguity = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "markets_officialextractedvalue"
+        constraints = [models.UniqueConstraint(fields=["source_document", "year", "month", "normalized_code"], name="uniq_official_extracted_document_period_code")]
+        indexes = [models.Index(fields=["year", "month", "normalized_code"], name="official_value_period_code_idx")]
+
+
+class IndexValidationComparison(models.Model):
+    """Persisted triple comparison between official, API and local values."""
+
+    class Status(models.TextChoices):
+        ALL_MATCH = "ALL_MATCH", "Toutes les sources concordent"
+        OFFICIAL_API_MATCH_LOCAL_MISSING = "OFFICIAL_API_MATCH_LOCAL_MISSING", "Officiel/API concordants, local absent"
+        OFFICIAL_LOCAL_MATCH_API_CONFLICT = "OFFICIAL_LOCAL_MATCH_API_CONFLICT", "Officiel/local concordants, API en conflit"
+        OFFICIAL_API_CONFLICT = "OFFICIAL_API_CONFLICT", "Officiel/API en conflit"
+        OFFICIAL_LOCAL_CONFLICT = "OFFICIAL_LOCAL_CONFLICT", "Officiel/local en conflit"
+        LOCAL_MISSING = "LOCAL_MISSING", "Local absent"
+        API_MISSING = "API_MISSING", "API absente"
+        PENDING_VALIDATION = "PENDING_VALIDATION", "Validation en attente"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    official_value = models.ForeignKey(OfficialExtractedValue, on_delete=models.PROTECT, related_name="comparisons")
+    index_definition = models.ForeignKey(IndexDefinition, on_delete=models.PROTECT, null=True, blank=True, related_name="validation_comparisons")
+    year = models.PositiveSmallIntegerField()
+    month = models.PositiveSmallIntegerField()
+    api_value = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True)
+    local_value = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True)
+    status = models.CharField(max_length=48, choices=Status.choices)
+    resolved = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "markets_indexvalidationcomparison"
+        constraints = [models.UniqueConstraint(fields=["official_value", "index_definition"], name="uniq_index_validation_comparison")]
+
+
+class IndexValidationAudit(models.Model):
+    """Append-only audit trail for a controlled official validation."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    monthly_value = models.ForeignKey(MonthlyIndexValue, on_delete=models.PROTECT, related_name="validation_audits")
+    value_before = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True)
+    status_before = models.CharField(max_length=30, blank=True)
+    value_after = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True)
+    status_after = models.CharField(max_length=30)
+    publication = models.ForeignKey(IndexPublication, on_delete=models.PROTECT, related_name="validation_audits")
+    document_hash = models.CharField(max_length=64, blank=True)
+    method = models.CharField(max_length=64)
+    actor = models.ForeignKey("accounts.User", on_delete=models.PROTECT, null=True, blank=True, related_name="index_validation_audits")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "markets_indexvalidationaudit"
+        ordering = ["created_at"]
+
+
+class ExternalIndexStaging(models.Model):
+    """Candidate data received from an external index provider."""
+
+    class ComparisonStatus(models.TextChoices):
+        NEW = "NEW", "Nouveau"
+        MATCHED = "MATCHED", "Correspondant"
+        CONFLICT = "CONFLICT", "Conflit"
+        MISSING_LOCAL = "MISSING_LOCAL", "Absent du référentiel local"
+        MISSING_SOURCE = "MISSING_SOURCE", "Absent de la source"
+        LOCAL_ONLY = "LOCAL_ONLY", "Présent uniquement en local"
+        DESIGNATION_CONFLICT = "DESIGNATION_CONFLICT", "Conflit de désignation"
+        INVALID = "INVALID", "Invalide"
+
+    class ValidationStatus(models.TextChoices):
+        PENDING_VALIDATION = "PENDING_VALIDATION", "Validation en attente"
+        VALIDATED = "VALIDATED", "Validé"
+        INVALID = "INVALID", "Invalide"
+
+    SOURCE_PROVIDER = "revisiondesprix.ma"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    source_provider = models.CharField(max_length=120, default=SOURCE_PROVIDER)
+    source_endpoint = models.CharField(max_length=500)
+    retrieved_at = models.DateTimeField()
+    external_code = models.CharField(max_length=120)
+    external_designation = models.CharField(max_length=255, null=True, blank=True)
+    year = models.PositiveSmallIntegerField(null=True, blank=True)
+    month = models.PositiveSmallIntegerField(null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(12)])
+    raw_value = models.CharField(max_length=120, blank=True)
+    normalized_value = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True)
+    raw_payload_hash = models.CharField(max_length=64)
+    previous_raw_value = models.CharField(max_length=120, blank=True)
+    previous_normalized_value = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True)
+    previous_raw_payload_hash = models.CharField(max_length=64, blank=True)
+    source_changed = models.BooleanField(default=False)
+    comparison_status = models.CharField(max_length=32, choices=ComparisonStatus.choices, default=ComparisonStatus.NEW)
+    validation_status = models.CharField(max_length=32, choices=ValidationStatus.choices, default=ValidationStatus.PENDING_VALIDATION)
+    matched_index_definition = models.ForeignKey(IndexDefinition, on_delete=models.PROTECT, null=True, blank=True, related_name="external_staging_rows")
+    local_value = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True)
+    pdf_value = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True)
+    pdf_comparison_status = models.CharField(max_length=32, default="PDF_NOT_CHECKED")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "markets_externalindexstaging"
+        ordering = ["-retrieved_at", "external_code", "year", "month"]
+        constraints = [models.UniqueConstraint(fields=["source_provider", "source_endpoint", "external_code", "year", "month"], name="uniq_external_index_stage_source_period", nulls_distinct=False)]
+        indexes = [
+            models.Index(fields=["year", "month", "external_code"], name="external_stage_period_code_idx"),
+            models.Index(fields=["comparison_status"], name="external_stage_comparison_idx"),
+        ]
+
+    def clean(self):
+        errors = {}
+        if bool(self.year) != bool(self.month):
+            errors["month"] = "L'année et le mois doivent être fournis ensemble."
+        if self.normalized_value is not None and self.normalized_value <= 0:
+            errors["normalized_value"] = "La valeur normalisée doit être strictement positive."
+        if self.local_value is not None and self.local_value <= 0:
+            errors["local_value"] = "La valeur locale doit être strictement positive."
+        if self.pdf_value is not None and self.pdf_value <= 0:
+            errors["pdf_value"] = "La valeur PDF doit être strictement positive."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
 
 class FormulaTemplate(models.Model):

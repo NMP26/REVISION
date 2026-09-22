@@ -2064,3 +2064,10 @@ Résultats financiers identiques
     poursuivre.
 -   Les règles juridiques officiellement vérifiées doivent mentionner
     leur source dans la documentation réglementaire du projet.
+
+### API-02 — staging externe approuvé
+
+`revisiondesprix.ma` reste exclusivement une source externe candidate. Le
+flux obligatoire est `API client → ExternalIndexStaging → comparaison /
+validation → PostgreSQL local`. Une synchronisation n'est pas une validation
+et aucune valeur externe ne peut modifier directement `MonthlyIndexValue`.

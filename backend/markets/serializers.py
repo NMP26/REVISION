@@ -11,8 +11,9 @@ from companies.permissions import get_membership
 
 from .models import (
     FormulaTemplate, FormulaTemplateTerm, FormulaTerm, Market, MarketFormula, MarketLot,
-    PriceItem, PriceSchedule, RevisionGroup,
+    ExternalIndexStaging, IndexDefinition, IndexPublication, MonthlyIndexValue, MonthlyWorkAllocation, PriceItem, PriceSchedule, RevisionGroup, Statement,
 )
+from .services import activate_v1_formula
 
 
 def validate_non_blank(value, label):
@@ -20,6 +21,41 @@ def validate_non_blank(value, label):
     if not value:
         raise serializers.ValidationError(f"{label} est obligatoire.")
     return value
+
+
+class IndexDefinitionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = IndexDefinition
+        fields = ["id", "code", "designation", "domain", "active"]
+
+
+class IndexPublicationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = IndexPublication
+        fields = ["id", "year", "month", "publication_date", "source_url", "document_reference", "document_hash", "source_type", "status", "imported_at", "validated_at"]
+
+
+class MonthlyIndexValueSerializer(serializers.ModelSerializer):
+    index_definition_detail = IndexDefinitionSerializer(source="index_definition", read_only=True)
+    publication_detail = IndexPublicationSerializer(source="publication", read_only=True)
+
+    class Meta:
+        model = MonthlyIndexValue
+        fields = ["id", "index_definition", "index_definition_detail", "publication", "publication_detail", "year", "month", "value", "status", "source_url", "source_document", "source_reference", "validated_at", "created_at", "updated_at"]
+
+
+class ExternalIndexStagingSerializer(serializers.ModelSerializer):
+    matched_index_definition_detail = IndexDefinitionSerializer(source="matched_index_definition", read_only=True)
+
+    class Meta:
+        model = ExternalIndexStaging
+        fields = [
+            "id", "source_provider", "source_endpoint", "retrieved_at", "external_code", "external_designation",
+            "year", "month", "raw_value", "normalized_value", "raw_payload_hash", "previous_raw_value",
+            "previous_normalized_value", "previous_raw_payload_hash", "source_changed", "comparison_status",
+            "validation_status", "matched_index_definition", "matched_index_definition_detail", "local_value",
+            "pdf_value", "pdf_comparison_status", "created_at", "updated_at",
+        ]
 
 
 class CompanySummarySerializer(serializers.ModelSerializer):
@@ -169,6 +205,27 @@ class RevisionApplicationSerializer(serializers.Serializer):
     revision_application_mode = serializers.ChoiceField(choices=Market.RevisionApplicationMode.choices)
     global_revision_group = serializers.PrimaryKeyRelatedField(queryset=RevisionGroup.objects.all(), required=False, allow_null=True)
     expected_updated_at = serializers.DateTimeField(required=False)
+
+
+class StatementSerializer(serializers.ModelSerializer):
+    amount_ht = StrictDecimalField(max_digits=18, decimal_places=2)
+    market = serializers.PrimaryKeyRelatedField(read_only=True)
+    allocation_method = serializers.ChoiceField(choices=Statement.AllocationMethod.choices, read_only=True)
+
+    class Meta:
+        model = Statement
+        fields = ["id", "market", "number", "date", "amount_ht", "observation", "allocation_method", "created_at", "updated_at"]
+        read_only_fields = ["id", "market", "allocation_method", "created_at", "updated_at"]
+
+
+class MonthlyWorkAllocationSerializer(serializers.ModelSerializer):
+    statement = serializers.PrimaryKeyRelatedField(read_only=True)
+    work_days = StrictDecimalField(max_digits=10, decimal_places=2)
+
+    class Meta:
+        model = MonthlyWorkAllocation
+        fields = ["id", "statement", "year", "month", "work_days", "created_at", "updated_at"]
+        read_only_fields = ["id", "statement", "created_at", "updated_at"]
 
 
 class PriceScheduleSerializer(serializers.ModelSerializer):
@@ -366,6 +423,8 @@ class MarketFormulaSerializer(serializers.ModelSerializer):
             formula.status = MarketFormula.Status.VALIDATED
             formula.validated_at = timezone.now()
             formula.save()
+        if formula.status != MarketFormula.Status.INACTIVE:
+            activate_v1_formula(formula=formula)
         return formula
 
     def _validate_locked_group_overlap(self, group, validated_data):

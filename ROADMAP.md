@@ -1,5 +1,31 @@
 # Roadmap générale — RevisionPrix
 
+## Priorité produit V1
+
+La V1 opérationnelle suit désormais le plan `plans/V1-SIMPLE.md` : une
+formule unique par marché, un décompte réduit à un montant HT et une
+ventilation temporelle explicite par jours de travaux et par mois. Les
+mois à zéro jour restent visibles ; le montant mensuel est calculé au
+prorata Decimal avec égalité exacte au montant du décompte. Aucun article,
+BDP, `PriceItem`, lot ou affectation par prix n'est requis dans ce parcours.
+Les structures LOT 2B restent conservées pour une version ultérieure.
+
+Le premier lot d'implémentation V1 est `V1-A — marché simple + formule
+unique`. Le décompte simple relève de V1-B, puis les jours de travaux par
+mois et la ventilation financière relèvent de V1-C, ultérieurement. Cette
+phase documentaire n'autorise aucune implémentation, migration ou
+modification de production.
+
+```text
+FIRST_IMPLEMENTATION_LOT: V1-A — marché simple + formule unique
+MONTHLY_WORK_DAYS_IMPLEMENTATION_LOT: V1-C — décompte / MonthlyWorkAllocation
+```
+
+V1-A est implémenté localement : un marché `SINGLE` utilise directement le
+catalogue de formules simples, sans exposer le choix multi-formules, le BDP,
+les lots ou l'affectation par prix. Les structures LOT 2B restent
+disponibles pour les marchés `MULTIPLE` et ne sont pas supprimées.
+
 | Phase | Périmètre | Statut |
 |---|---|---|
 | LOT 0 | Foundation | TERMINE |
@@ -88,3 +114,13 @@ Le passage à l'implémentation exige une autorisation dédiée et le passage
 des exigences LOT 1B à `IMPLEMENTED`, `TESTED` puis `VALIDATED` uniquement
 avec les preuves correspondantes. La présente phase ne produit aucune de
 ces preuves de code.
+
+Le référentiel local V1 des indices est maintenant implémenté additivement :
+définitions, publications mensuelles, valeurs Decimal, import contrôlé et
+résolution exacte code/mois. Les barèmes PDF absents du dépôt restent à
+importer après fourniture des sources ; aucune valeur non vérifiée n'est
+générée.
+
+API-01 est approuvé. API-02 ajoute `ExternalIndexStaging`, la synchronisation
+staging-only et sa consultation filtrée. La commande ne promeut aucune
+donnée vers `MonthlyIndexValue`; la validation API/PDF reste séparée.

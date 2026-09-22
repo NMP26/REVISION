@@ -1,6 +1,7 @@
 from decimal import Decimal
 from concurrent.futures import ThreadPoolExecutor
 import uuid
+from datetime import date
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -12,7 +13,8 @@ from rest_framework.test import APIClient
 from companies.models import Company, Membership
 from consortia.models import Consortium, ConsortiumMember
 
-from .models import FormulaTemplate, FormulaTemplateTerm, FormulaTerm, Market, MarketFormula, MarketLot, PriceItem, PriceSchedule, RevisionGroup
+from .models import FormulaTemplate, FormulaTemplateTerm, FormulaTerm, IndexDefinition, IndexPublication, Market, MarketFormula, MarketLot, MonthlyIndexValue, PriceItem, PriceSchedule, RevisionGroup
+from .services import resolve_base_index, resolve_index
 
 
 class Lot2BApiTests(TestCase):
@@ -151,6 +153,105 @@ class Lot2BApiTests(TestCase):
         self.assertEqual(member.get(f"/api/markets/{self.market.id}/price-schedule/").status_code, 200)
         self.assertEqual(member.post(f"/api/markets/{self.market.id}/price-schedule/items/", self.item_payload(), format="json").status_code, 403)
         self.assertEqual(self.client.get(f"/api/markets/{self.other_market.id}/price-schedule/").status_code, 404)
+
+
+class V1SimpleFormulaApiTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.owner = user_model.objects.create_user("v1-owner@example.com", "password-123")
+        self.member = user_model.objects.create_user("v1-member@example.com", "password-123")
+        self.company = Company.objects.create(raison_sociale="V1 Company")
+        self.other_company = Company.objects.create(raison_sociale="V1 Other")
+        Membership.objects.create(user=self.owner, company=self.company, role=Membership.Role.OWNER)
+        Membership.objects.create(user=self.member, company=self.company, role=Membership.Role.MEMBER)
+        self.market = Market.objects.create(company=self.company, market_number="V1-001", contracting_authority="Commune", subject="Marché simple", formula_structure=Market.FormulaStructure.SINGLE)
+        self.client = APIClient(); self.client.force_authenticate(self.owner)
+
+    def test_v1_catalog_is_visible_without_search_and_contains_bat3(self):
+        response = self.client.get("/api/formula-templates/")
+        self.assertEqual(response.status_code, 200)
+        codes = {item["code"] for item in response.data}
+        self.assertIn("BAT3", codes)
+        bat3 = next(item for item in response.data if item["code"] == "BAT3")
+        self.assertEqual(bat3["designation"], "Électricité")
+        self.assertIn("BAT3", bat3["expression_display"])
+
+    def test_v1_can_select_one_global_formula_without_bdp_or_lot(self):
+        template = FormulaTemplate.objects.get(code="BAT3", scope=FormulaTemplate.Scope.GLOBAL, status=FormulaTemplate.Status.VERIFIED)
+        group = self.client.post(f"/api/markets/{self.market.id}/revision-groups/", {"code": "BAT3", "name": "Électricité"}, format="json")
+        self.assertEqual(group.status_code, 201, getattr(group, "data", group.content))
+        copied = self.client.post(f"/api/markets/{self.market.id}/revision-groups/{group.data['id']}/formulas/from-template/", {"template_id": str(template.id)}, format="json")
+        self.assertEqual(copied.status_code, 201, getattr(copied, "data", copied.content))
+        selected = self.client.patch(f"/api/markets/{self.market.id}/revision-application/", {"revision_application_mode": "GLOBAL_FORMULA", "global_revision_group": group.data["id"]}, format="json")
+        self.assertEqual(selected.status_code, 200, getattr(selected, "data", selected.content))
+        self.assertFalse(PriceSchedule.objects.filter(market=self.market).exists())
+        self.assertFalse(MarketLot.objects.filter(market=self.market).exists())
+        self.assertEqual(self.market.revision_groups.count(), 1)
+        self.assertEqual(self.market.revision_groups.first().formulas.exclude(status=MarketFormula.Status.INACTIVE).count(), 1)
+
+    def test_v1_formula_selection_is_isolated_by_company(self):
+        foreign_market = Market.objects.create(company=self.other_company, market_number="V1-001", contracting_authority="Commune", subject="Autre marché", formula_structure=Market.FormulaStructure.SINGLE)
+        self.assertEqual(self.client.get(f"/api/markets/{foreign_market.id}/revision-groups/").status_code, 404)
+        self.assertEqual(self.client.get(f"/api/markets/{foreign_market.id}/revision-application/").status_code, 404)
+
+
+class IndexRepositoryTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.owner = user_model.objects.create_user("index-owner@example.com", "password-123")
+        self.member = user_model.objects.create_user("index-member@example.com", "password-123")
+        self.other = user_model.objects.create_user("index-other@example.com", "password-123")
+        self.company = Company.objects.create(raison_sociale="Index Company")
+        self.other_company = Company.objects.create(raison_sociale="Other Index Company")
+        Membership.objects.create(user=self.owner, company=self.company, role=Membership.Role.OWNER)
+        Membership.objects.create(user=self.member, company=self.company, role=Membership.Role.MEMBER)
+        self.definition = IndexDefinition.objects.create(code="BAT3-TEST", designation="Électricité", domain="BAT")
+        self.publication = IndexPublication.objects.get(year=2025, month=11)
+        self.publication.status = IndexPublication.Status.VALIDATED
+        self.publication.save(update_fields=["status"])
+        self.value = MonthlyIndexValue.objects.create(index_definition=self.definition, publication=self.publication, year=2025, month=11, value=Decimal("337.8"), status=MonthlyIndexValue.Status.DEFINITIVE)
+        self.client = APIClient(); self.client.force_authenticate(self.owner)
+
+    def test_decimal_and_unique_code_month(self):
+        self.assertEqual(self.value.value, Decimal("337.80000000"))
+        with self.assertRaises(ValidationError):
+            MonthlyIndexValue.objects.create(index_definition=self.definition, publication=self.publication, year=2025, month=11, value=Decimal("338"), status=MonthlyIndexValue.Status.PROVISIONAL)
+
+    def test_exact_resolution_has_source_and_no_month_fallback(self):
+        resolved = resolve_index("BAT3-TEST", 2025, 11)
+        self.assertEqual(resolved["value"], "337.80000000")
+        self.assertEqual(resolved["status"], MonthlyIndexValue.Status.DEFINITIVE)
+        self.assertEqual(resolved["source"]["document_reference"], "Barème novembre 2025")
+        self.assertEqual(resolve_index("BAT3-TEST", 2025, 10)["status"], "INDEX_NOT_AVAILABLE")
+        self.assertEqual(resolve_index("BAT3-TEST", 2025, 12)["status"], "INDEX_NOT_AVAILABLE")
+
+    def test_api_filters_and_member_read_isolation(self):
+        response = self.client.get("/api/indices/values/?year=2025&month=11&code=BAT3-TEST&domain=BAT&status=DEFINITIVE")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+        member = APIClient(); member.force_authenticate(self.member)
+        self.assertEqual(member.get("/api/indices/publications/").status_code, 200)
+        other = APIClient(); other.force_authenticate(self.other)
+        self.assertEqual(other.get("/api/indices/values/").status_code, 403)
+
+    def test_base_resolution_uses_exact_market_month_and_formula_code(self):
+        market = Market.objects.create(company=self.company, market_number="INDEX-001", contracting_authority="Commune", subject="Travaux", date_limite_remise_offres=date(2025, 11, 19), formula_structure=Market.FormulaStructure.SINGLE)
+        group = RevisionGroup.objects.create(market=market, code="BAT3-TEST", name="Électricité")
+        formula = MarketFormula.objects.create(revision_group=group, version_number=1, label="BAT3", created_by=self.owner)
+        FormulaTerm.objects.create(formula=formula, position=1, coefficient=Decimal("0.85"), index_code="BAT3-TEST", base_value=None)
+        market.revision_application_mode = Market.RevisionApplicationMode.GLOBAL_FORMULA
+        market.global_revision_group = group
+        market.save(update_fields=["revision_application_mode", "global_revision_group", "updated_at"])
+        result = resolve_base_index(market, formula)
+        self.assertEqual(result["base_month"], "2025-11")
+        self.assertEqual(result["base_index_value"], "337.80000000")
+        base_response = self.client.get(f"/api/markets/{market.id}/base-index/")
+        self.assertEqual(base_response.status_code, 200)
+        self.assertEqual(base_response.data["base_index_value"], "337.80000000")
+
+    def test_publication_import_command_is_available(self):
+        from django.core.management import get_commands
+        self.assertIn("import_index_publication", get_commands())
 
 
 class MarketApiTests(TestCase):
@@ -495,7 +596,7 @@ class RevisionFormulaApiTests(TestCase):
         self.assertEqual(response.data["constant_term"], "0.15000000")
         self.assertEqual(response.data["terms"][0]["coefficient"], "0.85000000")
         self.assertEqual(response.data["terms"][0]["base_value"], "337.80000000")
-        self.assertEqual(MarketFormula.objects.get().terms.get().coefficient, Decimal("0.85000000"))
+        self.assertEqual(MarketFormula.objects.get(revision_group=self.group).terms.get().coefficient, Decimal("0.85000000"))
 
     def test_float_financial_input_is_rejected(self):
         response = self.authenticated(self.owner).post(f"/api/markets/{self.market.id}/revision-groups/{self.group.id}/formulas/", self.draft_payload(constant_term=0.15), format="json")
@@ -665,8 +766,9 @@ class FormulaTemplateTests(TestCase):
         template = self.create_verified_template()
         listed = self.authenticated(self.member).get("/api/formula-templates/")
         self.assertEqual(listed.status_code, 200)
-        self.assertEqual(listed.data[0]["id"], str(template.id))
-        self.assertEqual(listed.data[0]["terms"][0]["coefficient"], "0.85000000")
+        self.assertIn(str(template.id), {item["id"] for item in listed.data})
+        listed_template = next(item for item in listed.data if item["id"] == str(template.id))
+        self.assertEqual(listed_template["terms"][0]["coefficient"], "0.85000000")
         self.assertEqual(self.authenticated(self.other).get(f"/api/formula-templates/{template.id}/").status_code, 200)
         self.assertEqual(self.authenticated(self.member).post("/api/formula-templates/", {}, format="json").status_code, 405)
 
