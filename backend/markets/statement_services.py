@@ -92,13 +92,25 @@ def calculate_statement_preview(statement: Statement) -> dict:
             "K": None,
             "K_minus_1": None,
             "revision_amount": None,
-            "calculation_status": "ZERO_AMOUNT" if amount["monthly_amount"] == 0 else "INDEX_NOT_AVAILABLE",
+            "calculation_status": "INDEX_NOT_AVAILABLE",
         }
         if amount["monthly_amount"] == 0:
-            if current_value is None:
-                row["calculation_status"] = "ZERO_AMOUNT_INDEX_NOT_AVAILABLE"
+            # Financial allocation is complete before index availability is
+            # evaluated. A zero-work month therefore always has a zero
+            # revision amount, while its index/coefficient fields remain
+            # informative when the index is available.
+            row["revision_amount"] = Decimal("0.00")
+            if base_value is None or base_status != MonthlyIndexValue.Status.DEFINITIVE:
+                row["calculation_status"] = "INDEX_NOT_AVAILABLE" if base_status == "INDEX_NOT_AVAILABLE" else "PENDING_INDEX"
+            elif current_value is None:
+                row["calculation_status"] = "INDEX_NOT_AVAILABLE"
             elif current.get("status") != MonthlyIndexValue.Status.DEFINITIVE:
-                row["calculation_status"] = "ZERO_AMOUNT_INDEX_PENDING"
+                row["calculation_status"] = "PENDING_INDEX"
+            else:
+                formula_values = evaluate_simple_formula(constant=result["formula"]["constant"], coefficient=result["formula"]["coefficient"], base_index=base_value, current_index=current_value)
+                row.update(formula_values)
+                row["revision_amount"] = Decimal("0.00")
+                row["calculation_status"] = "CALCULABLE_PREVIEW"
             result["monthly_results"].append(row)
             continue
         if base_value is None or base_status != MonthlyIndexValue.Status.DEFINITIVE:

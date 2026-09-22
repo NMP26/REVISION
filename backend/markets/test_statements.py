@@ -73,8 +73,27 @@ class V1StatementCalculationTests(TestCase):
             self.add_month(statement, 2026, month, "30" if month == 8 else "0")
         result = calculate_statement_preview(statement)
         self.assertEqual(result["calculation_status"], "INDEX_NOT_AVAILABLE")
+        self.assertEqual(result["total_work_days"], Decimal("30.00"))
+        self.assertEqual(result["total_allocated_amount"], Decimal("535776.00"))
+        self.assertEqual([row["monthly_amount"] for row in result["monthly_results"]], [Decimal("0.00")] * 4 + [Decimal("535776.00")])
+        self.assertEqual([row["amount_to_revise"] for row in result["monthly_results"]], [Decimal("0.00")] * 4 + [Decimal("535776.00")])
         self.assertIsNone(result["monthly_results"][-1]["current_index"])
+        self.assertIsNone(result["monthly_results"][-1]["revision_amount"])
         self.assertIsNone(result["total_revision"])
+
+    def test_zero_work_month_keeps_zero_revision_and_uses_available_index_coefficients(self):
+        statement = self.make_statement()
+        for month in range(4, 9):
+            self.add_month(statement, 2026, month, "30" if month == 8 else "0")
+        publication = IndexPublication.objects.get_or_create(year=2026, month=4, source_type=IndexPublication.SourceType.OFFICIAL, defaults={"document_reference": "Barème avril 2026", "status": IndexPublication.Status.VALIDATED})[0]
+        MonthlyIndexValue.objects.create(index_definition=self.definition, year=2026, month=4, publication=publication, value=Decimal("348.7"), status=MonthlyIndexValue.Status.DEFINITIVE)
+        result = calculate_statement_preview(statement)
+        april = result["monthly_results"][0]
+        self.assertEqual(april["monthly_amount"], Decimal("0.00"))
+        self.assertEqual(april["amount_to_revise"], Decimal("0.00"))
+        self.assertEqual(april["current_index"], Decimal("348.70000000"))
+        self.assertIsNotNone(april["ratio"])
+        self.assertEqual(april["revision_amount"], Decimal("0.00"))
 
     def test_zero_total_blocks_calculation(self):
         statement = self.make_statement()

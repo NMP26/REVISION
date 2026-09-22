@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.8.1 — Correction ventilation mensuelle SRM-SM
+
+- Séparation stricte entre montant à réviser et montant de la révision.
+- Conservation des montants ventilés lorsqu’un indice mensuel est indisponible.
+- Révision à `0,00` pour les mois sans travaux, avec coefficients calculés si l’indice existe.
+- Affichage métier « Index non disponible », « Non finalisable » et « Total montant à réviser ».
+- Tests de non-régression du scénario SRM-SM août 2026.
+
 ## v0.8.0 — V1 indices, validation et décomptes
 
 - Référentiel local des indices, staging externe et promotion contrôlée.
