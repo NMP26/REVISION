@@ -24,7 +24,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: revision-prix-backend:0.4.1
+    image: revision-prix-backend:0.8.2
     environment:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
       DJANGO_DEBUG: ${DJANGO_DEBUG}
@@ -55,7 +55,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    image: revision-prix-frontend:0.4.1
+    image: revision-prix-frontend:0.8.2
     ports:
       - "127.0.0.1:12701:80"
     depends_on:

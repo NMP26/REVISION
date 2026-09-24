@@ -45,7 +45,9 @@ describe('LOT 2B multi-formula workflow', () => {
   it('affecte un prix par la route bulk exclusive et permet une seconde formule du catalogue', async () => {
     render(<MemoryRouter initialEntries={['/app/markets/market-1/price-revision-assignment']}><Routes><Route path="/app/markets/:id/price-revision-assignment" element={<PriceRevisionAssignmentPage />} /></Routes></MemoryRouter>)
     await screen.findByText('Affectation des formules de révision')
+    await screen.findByText('1 prix sélectionné(s).')
     fireEvent.click(screen.getByRole('checkbox', { name: /002 — Pose câble HTA/ }))
+    await screen.findByText('2 prix sélectionné(s).')
     fireEvent.click(screen.getByRole('button', { name: 'Enregistrer l’affectation' }))
     await vi.waitFor(() => expect(assignPriceItems).toHaveBeenCalledWith('market-1', expect.objectContaining({ action: 'ASSIGN', revision_group_id: 'group-1', price_item_ids: ['item-1', 'item-2'] })))
     fireEvent.click(screen.getByRole('button', { name: '+ Ajouter une formule' }))

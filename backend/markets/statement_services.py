@@ -8,7 +8,7 @@ from django.core.exceptions import ValidationError
 
 from .calculation_engine import AllocationInput, CalculationInputError, allocate_amount, evaluate_simple_formula, formula_parameters
 from .models import MarketFormula, MonthlyIndexValue, Statement
-from .services import resolve_base_index, resolve_index
+from . import services
 
 
 def v1_formula_for_market(market):
@@ -32,7 +32,7 @@ def calculate_statement_preview(statement: Statement) -> dict:
     formula = v1_formula_for_market(market)
     allocations = list(statement.monthly_allocations.order_by("year", "month"))
     total_days = sum((row.work_days for row in allocations), Decimal("0"))
-    base = resolve_base_index(market, formula)
+    base = services.resolve_base_index(market, formula)
     base_value = Decimal(base["base_index_value"]) if base.get("base_index_value") else None
     base_status = base.get("base_index_status")
     result = {
@@ -64,19 +64,19 @@ def calculate_statement_preview(statement: Statement) -> dict:
         result["formula"].update({"constant": constant, "coefficient": coefficient, "index_code": index_code})
         result["index_code"] = index_code
 
-    if statement.amount_ht > 0 and total_days == 0:
-        result["calculation_status"] = "NO_WORK_DAYS"
-        result["message"] = "Aucun jour de travaux n'a été renseigné pour ce décompte."
-        return result
+    no_work_days = statement.amount_ht > 0 and total_days == 0
 
-    try:
-        _, allocated = allocate_amount(statement.amount_ht, [AllocationInput(row.year, row.month, row.work_days) for row in allocations])
-    except CalculationInputError as exc:
-        raise ValidationError({"allocations": str(exc)}) from exc
+    if no_work_days:
+        allocated = [{"monthly_amount": Decimal("0.00")} for _ in allocations]
+    else:
+        try:
+            _, allocated = allocate_amount(statement.amount_ht, [AllocationInput(row.year, row.month, row.work_days) for row in allocations])
+        except CalculationInputError as exc:
+            raise ValidationError({"allocations": str(exc)}) from exc
 
     for allocation, amount in zip(allocations, allocated):
-        current = resolve_index(result["index_code"], allocation.year, allocation.month) if result["index_code"] else {"status": "INDEX_NOT_AVAILABLE"}
-        current_value = Decimal(current["value"]) if current.get("value") else None
+        current = services.resolve_calculation_index(result["index_code"], allocation.year, allocation.month) if result["index_code"] else {"status": "INDEX_NOT_AVAILABLE", "available": False, "available_for_calculation": False, "reason": "INDEX_NOT_AVAILABLE", "value": None, "calculation_value": None}
+        current_value = Decimal(current["calculation_value"]) if current.get("calculation_value") else None
         row = {
             "year": allocation.year,
             "month": allocation.month,
@@ -93,6 +93,8 @@ def calculate_statement_preview(statement: Statement) -> dict:
             "K_minus_1": None,
             "revision_amount": None,
             "calculation_status": "INDEX_NOT_AVAILABLE",
+            "index_reason": current.get("reason"),
+            "available_for_calculation": current.get("available_for_calculation", False),
         }
         if amount["monthly_amount"] == 0:
             # Financial allocation is complete before index availability is
@@ -103,8 +105,8 @@ def calculate_statement_preview(statement: Statement) -> dict:
             if base_value is None or base_status != MonthlyIndexValue.Status.DEFINITIVE:
                 row["calculation_status"] = "INDEX_NOT_AVAILABLE" if base_status == "INDEX_NOT_AVAILABLE" else "PENDING_INDEX"
             elif current_value is None:
-                row["calculation_status"] = "INDEX_NOT_AVAILABLE"
-            elif current.get("status") != MonthlyIndexValue.Status.DEFINITIVE:
+                row["calculation_status"] = "PENDING_INDEX" if current.get("reason") == "INDEX_NOT_DEFINITIVE" else "INDEX_NOT_AVAILABLE"
+            elif not current.get("available_for_calculation", False):
                 row["calculation_status"] = "PENDING_INDEX"
             else:
                 formula_values = evaluate_simple_formula(constant=result["formula"]["constant"], coefficient=result["formula"]["coefficient"], base_index=base_value, current_index=current_value)
@@ -116,8 +118,8 @@ def calculate_statement_preview(statement: Statement) -> dict:
         if base_value is None or base_status != MonthlyIndexValue.Status.DEFINITIVE:
             row["calculation_status"] = "INDEX_NOT_AVAILABLE" if base_status == "INDEX_NOT_AVAILABLE" else "PENDING_INDEX"
         elif current_value is None:
-            row["calculation_status"] = "INDEX_NOT_AVAILABLE"
-        elif current.get("status") != MonthlyIndexValue.Status.DEFINITIVE:
+            row["calculation_status"] = "PENDING_INDEX" if current.get("reason") == "INDEX_NOT_DEFINITIVE" else "INDEX_NOT_AVAILABLE"
+        elif not current.get("available_for_calculation", False):
             row["calculation_status"] = "PENDING_INDEX"
         else:
             formula_values = evaluate_simple_formula(constant=result["formula"]["constant"], coefficient=result["formula"]["coefficient"], base_index=base_value, current_index=current_value)
@@ -128,7 +130,10 @@ def calculate_statement_preview(statement: Statement) -> dict:
 
     result["total_allocated_amount"] = sum((row["monthly_amount"] for row in result["monthly_results"]), Decimal("0.00"))
     usable = [row for row in result["monthly_results"] if row["monthly_amount"] > 0]
-    if any(row["calculation_status"] == "INDEX_NOT_AVAILABLE" for row in usable):
+    if no_work_days:
+        result["calculation_status"] = "NO_WORK_DAYS"
+        result["message"] = "Aucun jour de travaux n'a été renseigné pour ce décompte."
+    elif any(row["calculation_status"] == "INDEX_NOT_AVAILABLE" for row in usable):
         result["calculation_status"] = "INDEX_NOT_AVAILABLE"
         result["total_revision"] = None
     elif any(row["calculation_status"] == "PENDING_INDEX" for row in usable):

@@ -8,14 +8,36 @@ from .models import (
 
 
 def resolve_index(index_code, year, month):
-    """Resolve one exact code/month. There is intentionally no month fallback."""
+    """Resolve one exact validated local value, without any month fallback.
+
+    This is the single index lookup used by both base-index and statement
+    resolution.  Staging rows and remote providers are intentionally not part
+    of this read path.
+    """
     value = MonthlyIndexValue.objects.select_related("index_definition", "publication").filter(
         index_definition__code=index_code,
         year=year,
         month=month,
     ).first()
     if value is None:
-        return {"status": "INDEX_NOT_AVAILABLE", "code": index_code, "index_code": index_code, "year": year, "month": month, "base_year": year, "base_month": month, "value": None, "publication": None, "source_type": None, "source_reference": None}
+        return {
+            "status": "INDEX_NOT_AVAILABLE",
+            "code": index_code,
+            "index_code": index_code,
+            "year": year,
+            "month": month,
+            "base_year": year,
+            "base_month": month,
+            "value": None,
+            "available": False,
+            "available_for_calculation": False,
+            "reason": "INDEX_NOT_AVAILABLE",
+            "publication": None,
+            "source_type": None,
+            "source_reference": None,
+            "source": None,
+        }
+    available = value.status == MonthlyIndexValue.Status.DEFINITIVE
     return {
         "status": value.status,
         "code": value.index_definition.code,
@@ -30,6 +52,9 @@ def resolve_index(index_code, year, month):
         "publication": value.publication.document_reference,
         "source_type": value.publication.source_type,
         "source_reference": value.source_reference or value.source_document or value.publication.document_reference,
+        "available": available,
+        "available_for_calculation": available,
+        "reason": None if available else "INDEX_NOT_DEFINITIVE",
         "source": {
             "publication_id": str(value.publication_id),
             "document_reference": value.publication.document_reference,
@@ -41,6 +66,18 @@ def resolve_index(index_code, year, month):
     }
 
 
+def resolve_calculation_index(index_code, year, month):
+    """Resolve an index for calculation; only DEFINITIVE values are usable.
+
+    The underlying value remains available in the administrative resolution
+    result for traceability, while callers performing calculations must use
+    ``available_for_calculation`` and ``calculation_value``.
+    """
+    resolved = resolve_index(index_code, year, month)
+    resolved["calculation_value"] = resolved["value"] if resolved["available_for_calculation"] else None
+    return resolved
+
+
 def resolve_base_index(market, formula=None):
     """Resolve the V1 base index from the offer deadline and formula term."""
     if formula is None:
@@ -50,8 +87,9 @@ def resolve_base_index(market, formula=None):
     if market.date_limite_remise_offres is None:
         return {"index_code": term.index_code if term else None, "base_year": None, "base_month": None, "value": None, "status": "DATE_MISSING", "publication": None, "source_type": None, "source_reference": None, "base_index_code": term.index_code if term else None, "base_index_value": None, "base_index_status": "DATE_MISSING", "base_index_source": None}
     base_month = market.date_limite_remise_offres
-    resolved = resolve_index(term.index_code, base_month.year, base_month.month) if term else {"status": "INDEX_NOT_AVAILABLE"}
+    resolved = resolve_calculation_index(term.index_code, base_month.year, base_month.month) if term else {"status": "INDEX_NOT_AVAILABLE", "available_for_calculation": False, "reason": "INDEX_NOT_AVAILABLE", "calculation_value": None, "value": None}
     source = resolved.get("source")
+    calculation_value = resolved.get("calculation_value")
     return {
         "index_code": term.index_code if term else None,
         "base_year": base_month.year,
@@ -63,8 +101,11 @@ def resolve_base_index(market, formula=None):
         "source_reference": resolved.get("source_reference"),
         "base_month": base_month.strftime("%Y-%m"),
         "base_index_code": term.index_code if term else None,
-        "base_index_value": resolved.get("value"),
+        "base_index_value": calculation_value,
+        "base_index_raw_value": resolved.get("value"),
         "base_index_status": resolved.get("status", "INDEX_NOT_AVAILABLE"),
+        "base_index_available_for_calculation": resolved.get("available_for_calculation", False),
+        "base_index_reason": resolved.get("reason", "INDEX_NOT_AVAILABLE"),
         "base_index_source": source.get("document_reference") if source else None,
         "base_index_publication": source,
     }

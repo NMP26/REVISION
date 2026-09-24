@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.8.2 — Calcul limité aux indices définitifs
+
+- Le resolver central expose une résolution dédiée au calcul, strictement limitée aux valeurs `DEFINITIVE`.
+- Les valeurs `PROVISIONAL` et `PENDING_VALIDATION` restent consultables mais ne produisent aucun coefficient ni montant de révision.
+- Aucun fallback mensuel et aucune conversion implicite de statut.
+- Note de calcul et page Indices / Barèmes alignées sur les statuts métier.
+- Tests backend de non-régression ajoutés pour les indices définitifs, provisoires, en attente, absents et l’indice de base.
+
 ## v0.8.1 — Correction ventilation mensuelle SRM-SM
 
 - Séparation stricte entre montant à réviser et montant de la révision.

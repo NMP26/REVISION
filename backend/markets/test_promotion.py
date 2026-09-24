@@ -90,5 +90,6 @@ class IndexPromotionTests(TestCase):
         FormulaTerm.objects.create(formula=formula, position=1, coefficient=Decimal("0.85"), index_code="BAT3")
         result = resolve_base_index(market, formula)
         self.assertEqual(result["base_month"], "2025-11")
-        self.assertEqual(result["base_index_value"], "337.80000000")
+        self.assertIsNone(result["base_index_value"])
+        self.assertEqual(result["base_index_raw_value"], "337.80000000")
         self.assertEqual(result["base_index_status"], MonthlyIndexValue.Status.PENDING_VALIDATION)

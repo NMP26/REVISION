@@ -365,3 +365,12 @@ Règle d'architecture : `EXTERNAL API != OFFICIAL LOCAL VALUE` et
 | Validation contrôlée et idempotente | `validate_official_indices --dry-run/--apply`, audit append-only | 0013 | duplicate, PENDING→DEFINITIVE, local protégé | IMPLEMENTED / TESTED |
 | Résolution exacte sans fallback | `resolve_index`, `resolve_base_index` | — | base marché / mois absent | IMPLEMENTED / TESTED |
 | Contrôle des six barèmes ciblés | dry-run ciblé des six PDF, archive non traitée en masse | — | BAT3 assertions de contrôle | READY FOR REVIEW |
+## IDX-05 — Calcul limité aux indices définitifs
+
+La politique V1 `CALCULATION_INDEX_POLICY=DEFINITIVE_ONLY` est gelée : seul
+`MonthlyIndexValue.DEFINITIVE` alimente le calcul. Les statuts
+`PROVISIONAL`, `PENDING_VALIDATION` et les mois absents restent traçables mais
+sont exclus du resolver de calcul, sans fallback mensuel.
+
+Implémentation : `markets.services.resolve_calculation_index`,
+`resolve_base_index` et `markets.statement_services`.

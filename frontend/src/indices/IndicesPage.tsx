@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ApiError, ExternalIndexStaging, IndexPublication, MonthlyIndexValue, listExternalIndexStaging, listIndexPublications, listIndexValues } from '../lib/api'
 
 const monthLabel = (year: number, month: number) => new Intl.DateTimeFormat('fr-FR', { month: 'long', year: 'numeric' }).format(new Date(Date.UTC(year, month - 1, 1)))
-const statusLabel: Record<string, string> = { DEFINITIVE: 'VALIDÉ', PROVISIONAL: 'PROVISOIRE', PENDING_VALIDATION: 'EN ATTENTE' }
+const statusLabel: Record<string, string> = { DEFINITIVE: 'Définitif', PROVISIONAL: 'Provisoire', PENDING_VALIDATION: 'En attente de validation' }
 const sourceTypeLabel: Record<string, string> = { OFFICIAL: 'OFFICIEL', EXTERNAL_SECONDARY: 'EXTERNE', MANUAL_VALIDATED: 'VALIDATION MANUELLE' }
 
 export function IndicesPage() {
