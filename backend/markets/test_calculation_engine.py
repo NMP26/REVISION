@@ -1,7 +1,7 @@
 from decimal import Decimal, localcontext
 from unittest import TestCase
 
-from .calculation_engine import AllocationInput, CalculationInputError, allocate_amount, evaluate_simple_formula
+from .calculation_engine import AllocationInput, CalculationInputError, ROUNDING_POLICY, allocate_amount, evaluate_simple_formula, round_regulatory_4
 
 
 class CalculationEngineTests(TestCase):
@@ -24,8 +24,29 @@ class CalculationEngineTests(TestCase):
         result = evaluate_simple_formula(constant=Decimal("0.15"), coefficient=Decimal("0.85"), base_index=Decimal("337.8"), current_index=Decimal("348.7"))
         with localcontext() as context:
             context.prec = 40
-            self.assertEqual(result["ratio"], Decimal("348.7") / Decimal("337.8"))
-        self.assertEqual(result["rounding_status"], "ROUNDING_POLICY_PENDING")
+            self.assertEqual(result["ratio"], Decimal("1.0322"))
+            self.assertEqual(result["variable_term"], Decimal("0.8773"))
+            self.assertEqual(result["P_P0"], Decimal("1.0273"))
+            self.assertEqual(result["P_P0_minus_1"], result["P_P0"] - Decimal("1"))
+        self.assertEqual(result["rounding_status"], ROUNDING_POLICY)
+
+    def test_srm_reference_values_are_golden_chained_values(self):
+        result = evaluate_simple_formula(constant="0.15", coefficient="0.85", base_index="337.8", current_index="348.7")
+        self.assertEqual(result["ratio"], Decimal("1.0322"))
+        self.assertEqual(result["variable_term"], Decimal("0.8773"))
+        self.assertEqual(result["P_P0"], Decimal("1.0273"))
+        self.assertEqual(result["P_P0_minus_1"], Decimal("0.0273"))
+        self.assertEqual(result["rounding_status"], ROUNDING_POLICY)
+
+    def test_regulatory_rounding_is_decimal_truncation_toward_zero(self):
+        self.assertEqual(round_regulatory_4(Decimal("1.0322676")), Decimal("1.0322"))
+        self.assertEqual(round_regulatory_4(Decimal("-1.0322676")), Decimal("-1.0322"))
+
+    def test_other_simple_index_is_generic(self):
+        result = evaluate_simple_formula(constant="0.20", coefficient="0.80", base_index="100", current_index="110")
+        self.assertEqual(result["ratio"], Decimal("1.1"))
+        self.assertEqual(result["variable_term"], Decimal("0.88"))
+        self.assertEqual(result["P_P0"], Decimal("1.08"))
 
     def test_float_is_rejected(self):
         with self.assertRaises(CalculationInputError):

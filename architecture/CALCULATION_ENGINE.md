@@ -1,10 +1,20 @@
-STATUS: DESIGN APPROVED — IMPLEMENTATION NOT AUTHORIZED
-IMPLEMENTATION: CONTRACT DOCUMENTED — PURE ENGINE NOT IMPLEMENTED; DEFINITIVE REGULATED CALCULATION NOT IMPLEMENTED
+STATUS: DESIGN APPROVED — CALC-01 IMPLEMENTED LOCALLY FOR V1 PREVIEW
+IMPLEMENTATION: PURE DECIMAL PREVIEW IMPLEMENTED; DEFINITIVE REGULATED OUTPUT REMAINS BLOCKED
 
 # Moteur de calcul — fondations LOT 2A
 
-Cette page décrit une interface future pure Python. Elle ne crée aucun
-code dans cette phase.
+## Règle SRM-SM CALC-01
+
+Le moteur utilise exclusivement `Decimal`. Pour la formule simple, chaque
+étape contractuelle est tronquée à quatre décimales avant d'être transmise à
+l'étape suivante : ratio `I/I₀`, terme variable, coefficient `P/P₀`, puis
+variation `P/P₀ - 1`. La politique est centralisée dans
+`markets.calculation_engine.round_regulatory_4`, avec le mode Decimal
+`ROUND_DOWN` (troncature vers zéro). Ainsi `348,7 / 337,8 = 1,0322`,
+`0,85 × 1,0322 = 0,8773`, `P/P₀ = 1,0273` et la variation vaut `0,0273`.
+
+Le cœur pur Python est implémenté pour la PREVIEW V1. Cette correction ne
+valide ni une révision définitive ni une promotion d'indice en production.
 
 ## Séparation des responsabilités
 
@@ -66,11 +76,10 @@ prématurée. La politique d'arrondi est centralisée et explicite, sans
 utiliser l'arrondi Python implicite ni disperser la règle dans les
 serializers, vues ou frontend.
 
-Le mode exact (`ROUND_HALF_UP`, `ROUND_HALF_EVEN`, `ROUND_DOWN` ou autre)
-reste `PENDING_VALIDATION` conformément à `PV-REG-001`. Tant qu'il n'est
-pas validé, la valeur Decimal non arrondie peut être conservée et une
-sortie réglementaire définitive doit rester bloquée avec
-`ROUNDING_POLICY_PENDING`.
+Le mode implémenté pour la PREVIEW CALC-01 est `ROUND_DOWN`, soit une
+troncature vers zéro à quatre décimales. La sortie réglementaire définitive
+reste bloquée tant que `PV-REG-001` n'est pas clôturé ; le moteur expose donc
+explicitement le statut de PREVIEW et ne crée aucun snapshot validé.
 
 ## Reproductibilité future
 

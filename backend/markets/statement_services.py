@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 
-from .calculation_engine import AllocationInput, CalculationInputError, allocate_amount, evaluate_simple_formula, formula_parameters
+from .calculation_engine import AllocationInput, CalculationInputError, ROUNDING_POLICY_PENDING, allocate_amount, evaluate_simple_formula, formula_parameters
 from .models import MarketFormula, MonthlyIndexValue, Statement
 from . import services
 
@@ -27,6 +27,15 @@ def _source(index):
     }
 
 
+def _variable_term_label(coefficient, index_code):
+    """Build the explanatory label from the active formula, never from an index name."""
+    if coefficient is None or not index_code:
+        return None
+    coefficient = Decimal(coefficient)
+    coefficient_text = format(coefficient, "f").rstrip("0").rstrip(".").replace(".", ",")
+    return f"{coefficient_text} × {index_code}/{index_code}₀"
+
+
 def calculate_statement_preview(statement: Statement) -> dict:
     market = statement.market
     formula = v1_formula_for_market(market)
@@ -43,7 +52,7 @@ def calculate_statement_preview(statement: Statement) -> dict:
         "total_allocated_amount": Decimal("0.00"),
         "total_revision": Decimal("0.00"),
         "calculation_status": "CALCULABLE_PREVIEW",
-        "rounding_status": "ROUNDING_POLICY_PENDING",
+        "rounding_status": ROUNDING_POLICY_PENDING,
         "base_index": base_value,
         "base_index_status": base_status,
         "base_index_source": base.get("base_index_publication") or base.get("base_index_source"),
@@ -52,6 +61,7 @@ def calculate_statement_preview(statement: Statement) -> dict:
             "constant": formula.constant_term if formula else None,
             "coefficient": None,
             "index_code": None,
+            "variable_term_label": None,
         },
         "monthly_results": [],
     }
@@ -61,7 +71,7 @@ def calculate_statement_preview(statement: Statement) -> dict:
         result["calculation_status"] = "FORMULA_NOT_SUPPORTED_V1"
     else:
         constant, coefficient, index_code = formula_parameters(formula, formula.terms.all()[0])
-        result["formula"].update({"constant": constant, "coefficient": coefficient, "index_code": index_code})
+        result["formula"].update({"constant": constant, "coefficient": coefficient, "index_code": index_code, "variable_term_label": _variable_term_label(coefficient, index_code)})
         result["index_code"] = index_code
 
     no_work_days = statement.amount_ht > 0 and total_days == 0
@@ -83,6 +93,7 @@ def calculate_statement_preview(statement: Statement) -> dict:
             "work_days": allocation.work_days,
             "monthly_amount": amount["monthly_amount"],
             "amount_to_revise": amount["monthly_amount"],
+            "monthly_amount_to_revise": amount["monthly_amount"],
             "index_code": result["index_code"],
             "base_index": base_value,
             "current_index": current_value,

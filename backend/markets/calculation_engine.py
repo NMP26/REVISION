@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_HALF_UP, localcontext
+from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP, localcontext
 from typing import Iterable, Mapping
 
 
 CENT = Decimal("0.01")
 FOUR_DECIMALS = Decimal("0.0001")
+REGULATORY_ROUNDING_MODE = "ROUND_DOWN"
+ROUNDING_POLICY = "TRUNCATION_4_DECIMALS"
+ROUNDING_POLICY_PENDING = ROUNDING_POLICY
 
 
 class CalculationInputError(ValueError):
@@ -32,8 +35,19 @@ def decimal(value) -> Decimal:
 
 
 def round_money(value: Decimal) -> Decimal:
-    """Technical preview rounding; regulatory mode remains pending validation."""
+    """Technical monetary allocation rounding (distinct from the index rule)."""
     return decimal(value).quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def round_regulatory_4(value: Decimal) -> Decimal:
+    """Apply the SRM-SM four-decimal truncation rule.
+
+    The reference chain is positive and truncates toward zero:
+    348.7 / 337.8 -> 1.0322 and 0.85 * 1.0322 -> 0.8773.
+    ``ROUND_DOWN`` is Decimal's explicit toward-zero mode; no binary float
+    participates in this policy.
+    """
+    return decimal(value).quantize(FOUR_DECIMALS, rounding=ROUND_DOWN)
 
 
 def allocate_amount(amount: Decimal, allocations: Iterable[AllocationInput]) -> tuple[Decimal, list[dict]]:
@@ -73,13 +87,18 @@ def evaluate_simple_formula(*, constant: Decimal, coefficient: Decimal, base_ind
         raise CalculationInputError("Les indices doivent être strictement positifs.")
     with localcontext() as context:
         context.prec = 40
-        ratio = current_index / base_index
-        k = constant + coefficient * ratio
+        ratio = round_regulatory_4(current_index / base_index)
+        variable_term = round_regulatory_4(coefficient * ratio)
+        k = round_regulatory_4(constant + variable_term)
+        variation = round_regulatory_4(k - Decimal("1"))
     return {
         "ratio": ratio,
+        "variable_term": variable_term,
         "K": k,
-        "K_minus_1": k - Decimal("1"),
-        "rounding_status": "ROUNDING_POLICY_PENDING",
+        "K_minus_1": variation,
+        "P_P0": k,
+        "P_P0_minus_1": variation,
+        "rounding_status": ROUNDING_POLICY,
     }
 
 

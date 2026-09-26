@@ -1,5 +1,12 @@
 # Changelog
 
+## IDX-06 / CALC-01 — Correction contrôlée en revue finale
+
+- Promotion documentaire limitée au workflow officiel, sans écrasement silencieux et avec audit append-only.
+- Calcul SRM-SM centralisé en `Decimal` avec troncature `ROUND_DOWN` à quatre décimales à chaque étape intermédiaire.
+- Golden test permanent sur BAT3 novembre 2025 / avril 2026 et scénario de décompte SRM-SM.
+- Aucun déploiement ni changement de PostgreSQL de production dans cette mission.
+
 ## v0.8.2 — Calcul limité aux indices définitifs
 
 - Le resolver central expose une résolution dédiée au calcul, strictement limitée aux valeurs `DEFINITIVE`.

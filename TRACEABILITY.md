@@ -374,3 +374,17 @@ sont exclus du resolver de calcul, sans fallback mensuel.
 
 Implémentation : `markets.services.resolve_calculation_index`,
 `resolve_base_index` et `markets.statement_services`.
+
+## IDX-06 / CALC-01 — correction contrôlée du calcul SRM-SM
+
+La formule simple est évaluée exclusivement en `Decimal` avec troncature
+`ROUND_DOWN` à quatre décimales après chaque étape intermédiaire : `I/I₀`,
+terme variable, `P/P₀`, puis `P/P₀ - 1`. Le résultat reste une PREVIEW
+recalculable ; aucune révision définitive, promotion d'indice ou écriture de
+production n'est effectuée par cette correction.
+
+Implémentation : `markets.calculation_engine` et
+`markets.statement_services`.
+Preuves : `markets.test_calculation_engine` (golden BAT3) et
+`markets.test_statements` (scénario SRM-SM, mois à zéro, août absent et
+statuts non définitifs).

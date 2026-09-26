@@ -7,6 +7,11 @@ from .models import (
 )
 
 
+# Frozen by IDX-05: only locally stored definitive values can enter a
+# revision calculation.
+CALCULATION_INDEX_POLICY = "DEFINITIVE_ONLY"
+
+
 def resolve_index(index_code, year, month):
     """Resolve one exact validated local value, without any month fallback.
 
@@ -14,11 +19,17 @@ def resolve_index(index_code, year, month):
     resolution.  Staging rows and remote providers are intentionally not part
     of this read path.
     """
-    value = MonthlyIndexValue.objects.select_related("index_definition", "publication").filter(
+    values = MonthlyIndexValue.objects.select_related("index_definition", "publication").filter(
         index_definition__code=index_code,
         year=year,
         month=month,
-    ).first()
+    )
+    # Prefer the definitive local value for this exact code/month.  Keep the
+    # non-definitive row as the fallback only for administrative visibility;
+    # resolve_calculation_index still exposes it as unusable under
+    # DEFINITIVE_ONLY.  This prevents a pending row from masking an available
+    # definitive value in legacy/imported data.
+    value = values.filter(status=MonthlyIndexValue.Status.DEFINITIVE).first() or values.first()
     if value is None:
         return {
             "status": "INDEX_NOT_AVAILABLE",
@@ -37,7 +48,7 @@ def resolve_index(index_code, year, month):
             "source_reference": None,
             "source": None,
         }
-    available = value.status == MonthlyIndexValue.Status.DEFINITIVE
+    available = CALCULATION_INDEX_POLICY == "DEFINITIVE_ONLY" and value.status == MonthlyIndexValue.Status.DEFINITIVE
     return {
         "status": value.status,
         "code": value.index_definition.code,

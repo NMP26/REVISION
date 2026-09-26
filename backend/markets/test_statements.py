@@ -11,7 +11,7 @@ from companies.models import Company, Membership
 
 from .models import FormulaTerm, IndexDefinition, IndexPublication, Market, MarketFormula, MonthlyIndexValue, MonthlyWorkAllocation, RevisionGroup, Statement
 from .statement_services import calculate_statement_preview
-from .services import resolve_calculation_index
+from .services import CALCULATION_INDEX_POLICY, resolve_calculation_index
 
 
 class V1StatementCalculationTests(TestCase):
@@ -33,6 +33,9 @@ class V1StatementCalculationTests(TestCase):
         self.definition = definition
         publication = IndexPublication.objects.get_or_create(year=2025, month=11, source_type=IndexPublication.SourceType.OFFICIAL, defaults={"document_reference": "Barème novembre 2025", "status": IndexPublication.Status.VALIDATED})[0]
         MonthlyIndexValue.objects.update_or_create(index_definition=definition, year=2025, month=11, defaults={"publication": publication, "value": Decimal("337.8"), "status": MonthlyIndexValue.Status.DEFINITIVE, "source_document": "Barème novembre 2025"})
+
+    def test_calculation_policy_remains_definitive_only(self):
+        self.assertEqual(CALCULATION_INDEX_POLICY, "DEFINITIVE_ONLY")
 
     def make_statement(self, amount="535776.00"):
         return Statement.objects.create(market=self.market, number=1, date=date(2026, 8, 31), amount_ht=Decimal(amount))
@@ -59,15 +62,22 @@ class V1StatementCalculationTests(TestCase):
         statement = self.make_statement()
         for month in range(4, 9):
             self.add_month(statement, 2026, month, "30" if month == 8 else "0")
-        publication = IndexPublication.objects.get_or_create(year=2026, month=8, source_type=IndexPublication.SourceType.OFFICIAL, defaults={"document_reference": "Barème août 2026", "status": IndexPublication.Status.VALIDATED})[0]
-        MonthlyIndexValue.objects.create(index_definition=self.definition, year=2026, month=8, publication=publication, value=Decimal("348.7"), status=MonthlyIndexValue.Status.DEFINITIVE)
+        publication = IndexPublication.objects.get_or_create(year=2026, month=4, source_type=IndexPublication.SourceType.OFFICIAL, defaults={"document_reference": "Barème avril 2026", "status": IndexPublication.Status.VALIDATED})[0]
+        MonthlyIndexValue.objects.create(index_definition=self.definition, year=2026, month=4, publication=publication, value=Decimal("348.7"), status=MonthlyIndexValue.Status.DEFINITIVE)
         result = calculate_statement_preview(statement)
         self.assertEqual(result["total_work_days"], Decimal("30.00"))
         self.assertEqual(result["total_allocated_amount"], Decimal("535776.00"))
         self.assertEqual([row["monthly_amount"] for row in result["monthly_results"]], [Decimal("0.00")] * 4 + [Decimal("535776.00")])
         self.assertEqual(result["base_index"], Decimal("337.80000000"))
-        self.assertEqual(result["monthly_results"][-1]["current_index"], Decimal("348.70000000"))
-        self.assertEqual(result["calculation_status"], "CALCULABLE_PREVIEW")
+        self.assertIsNone(result["monthly_results"][-1]["current_index"])
+        april = result["monthly_results"][0]
+        self.assertEqual(april["ratio"], Decimal("1.0322"))
+        self.assertEqual(april["variable_term"], Decimal("0.8773"))
+        self.assertEqual(april["P_P0"], Decimal("1.0273"))
+        self.assertEqual(april["P_P0_minus_1"], Decimal("0.0273"))
+        self.assertEqual(april["revision_amount"], Decimal("0.00"))
+        self.assertIsNone(result["total_revision"])
+        self.assertEqual(result["calculation_status"], "INDEX_NOT_AVAILABLE")
 
     def test_missing_august_index_has_no_fallback(self):
         statement = self.make_statement()
@@ -118,6 +128,21 @@ class V1StatementCalculationTests(TestCase):
         self.assertEqual(april["current_index"], Decimal("348.70000000"))
         self.assertIsNotNone(april["ratio"])
         self.assertEqual(april["revision_amount"], Decimal("0.00"))
+
+    def test_definitive_index_is_displayed_for_zero_amount_month(self):
+        statement = self.make_statement()
+        self.add_month(statement, 2026, 4, "0")
+        publication = IndexPublication.objects.get_or_create(year=2026, month=4, source_type=IndexPublication.SourceType.OFFICIAL, defaults={"document_reference": "Barème avril 2026", "status": IndexPublication.Status.VALIDATED})[0]
+        MonthlyIndexValue.objects.create(index_definition=self.definition, year=2026, month=4, publication=publication, value=Decimal("348.7"), status=MonthlyIndexValue.Status.DEFINITIVE)
+
+        row = calculate_statement_preview(statement)["monthly_results"][0]
+
+        self.assertEqual(row["current_index"], Decimal("348.70000000"))
+        self.assertEqual(row["index_status"], MonthlyIndexValue.Status.DEFINITIVE)
+        self.assertTrue(row["available_for_calculation"])
+        self.assertIsNotNone(row["ratio"])
+        self.assertEqual(row["amount_to_revise"], Decimal("0.00"))
+        self.assertEqual(row["revision_amount"], Decimal("0.00"))
 
     def test_zero_total_blocks_calculation(self):
         statement = self.make_statement()
