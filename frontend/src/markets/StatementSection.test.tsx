@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Market, Statement } from '../lib/api'
 import { StatementSection } from './StatementSection'
 
-const api = vi.hoisted(() => ({ listStatements: vi.fn(), saveStatement: vi.fn(), listMonthlyWorkAllocations: vi.fn(), saveMonthlyWorkAllocation: vi.fn(), getStatementCalculation: vi.fn() }))
+const api = vi.hoisted(() => ({ listStatements: vi.fn(), saveStatement: vi.fn(), deleteStatement: vi.fn(), listMonthlyWorkAllocations: vi.fn(), saveMonthlyWorkAllocation: vi.fn(), getStatementCalculation: vi.fn() }))
 vi.mock('../lib/api', async () => ({ ...(await vi.importActual('../lib/api')), ...api }))
 
 const market = { id: 'market-1', market_number: '10006299/4500004338', subject: 'Travaux', date_os_commencement: '2026-04-23', date_limite_remise_offres: '2025-11-19' } as Market
@@ -36,5 +36,37 @@ describe('StatementSection', () => {
     expect((await screen.findAllByText('Index non disponible')).length).toBeGreaterThan(0)
     expect(screen.queryByText('INDEX_NOT_AVAILABLE')).not.toBeInTheDocument()
     expect(screen.getByText('535 776,00 DH')).toBeInTheDocument()
+  })
+
+  it('edits a statement from the prefilled form and refreshes the preview', async () => {
+    api.listStatements.mockResolvedValue([statement])
+    api.saveStatement.mockResolvedValue({ ...statement, amount_ht: '123.45', observation: 'Modifié' })
+    render(<StatementSection market={market} editable />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Modifier' }))
+    expect(screen.getByRole('heading', { name: /modifier le décompte n°1/i })).toBeInTheDocument()
+    expect(screen.getByDisplayValue('535776.00')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText(/montant ht/i), { target: { value: '123.45' } })
+    fireEvent.click(screen.getByRole('button', { name: /enregistrer les modifications/i }))
+    await waitFor(() => expect(api.saveStatement).toHaveBeenCalledWith(market.id, expect.objectContaining({ amount_ht: '123.45' }), statement.id))
+    expect(api.getStatementCalculation).toHaveBeenCalledWith(market.id, statement.id)
+  })
+
+  it('confirms before deleting', async () => {
+    api.listStatements.mockResolvedValue([statement]); api.deleteStatement.mockResolvedValue(undefined)
+    vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+    render(<StatementSection market={market} editable />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Supprimer' }))
+    expect(api.deleteStatement).not.toHaveBeenCalled()
+    vi.mocked(window.confirm).mockReturnValueOnce(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Supprimer' }))
+    await waitFor(() => expect(api.deleteStatement).toHaveBeenCalledWith(market.id, statement.id))
+    vi.mocked(window.confirm).mockRestore()
+  })
+
+  it('disables edit and delete actions for a locked statement', async () => {
+    api.listStatements.mockResolvedValue([{ ...statement, is_locked: true, lock_message: 'Décompte verrouillé : une révision validée utilise ce décompte.' }])
+    render(<StatementSection market={market} editable />)
+    expect(await screen.findByRole('button', { name: 'Modifier' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Supprimer' })).toBeDisabled()
   })
 })

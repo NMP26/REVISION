@@ -71,27 +71,43 @@ class ValidationPlan:
 
 
 class OfficialIndexValidationService:
-    def __init__(self, path: Path, *, source_url="", document_reference="", publication_date=None):
+    def __init__(self, path: Path, *, source_url="", document_reference="", source_reference="", publication_date=None, reprocess_existing=False):
         self.path = Path(path)
         self.source_url = source_url
         self.document_reference = document_reference or self.path.name
+        self.source_reference = source_reference or str(self.path)
         self.publication_date = publication_date
+        self.reprocess_existing = reprocess_existing
+
+    @staticmethod
+    def _period_for_row(row, year, month, detected_periods):
+        if not row.source_column.isdigit():
+            return None
+        column = int(row.source_column)
+        if 1 <= column <= 3 and year and month:
+            absolute_month = month + column - 1
+            row_year = year + (absolute_month - 1) // 12
+            row_month = ((absolute_month - 1) % 12) + 1
+            return f"{row_year:04d}-{row_month:02d}"
+        if 1 <= column <= len(detected_periods):
+            return detected_periods[column - 1]
+        return None
 
     def plan(self) -> ValidationPlan:
         digest = sha256_file(self.path)
         existing = IndexSourceDocument.objects.filter(sha256=digest).first()
-        if existing:
+        if existing and not self.reprocess_existing:
             duplicate_result = DocumentResult(
                 filename=self.path.name, sha256=digest, file_size=self.path.stat().st_size,
                 pages=existing.page_count, periods=existing.detected_periods,
                 extractor=existing.extraction_method, extraction_status=existing.extraction_status,
             )
             return ValidationPlan(duplicate_result, existing.nominal_year, existing.nominal_month, [], True)
-        result = analyse_pdf(self.path, source_reference=str(self.path))
+        result = analyse_pdf(self.path, source_reference=self.source_reference)
         year, month = nominal_period(result.filename, result.periods)
         comparisons = []
         for position, row in enumerate(result.raw_rows):
-            period = result.periods[int(row.source_column) - 1] if row.source_column.isdigit() and int(row.source_column) <= len(result.periods) else None
+            period = self._period_for_row(row, year, month, result.periods)
             row_year, row_month = (period.split("-") if period else (None, None))
             if row_year is None or row_month is None or (year and month and (int(row_year), int(row_month)) != (year, month)):
                 continue
@@ -108,25 +124,44 @@ class OfficialIndexValidationService:
         return ValidationPlan(result, year, month, comparisons)
 
     @staticmethod
-    def _apply_allowed():
+    def _apply_allowed(*, allow_live=False):
         db_name = str(connection.settings_dict.get("NAME", ""))
-        return os.environ.get("DJANGO_ENV", "").lower() == "test" or db_name.startswith("test_")
+        if os.environ.get("DJANGO_ENV", "").lower() == "test" or db_name.startswith("test_"):
+            return True
+        return allow_live and os.environ.get("IDX_ALLOW_LIVE_APPLY") == "1"
 
     @transaction.atomic
-    def apply(self, *, actor=None):
-        if not self._apply_allowed():
-            raise RuntimeError("SECURITY: --apply est autorisé uniquement sur TEST_DATABASE.")
+    def apply(self, *, actor=None, allow_live=False):
+        if not self._apply_allowed(allow_live=allow_live):
+            raise RuntimeError("SECURITY: écriture refusée hors TEST_DATABASE sans autorisation explicite IDX_ALLOW_LIVE_APPLY.")
         plan = self.plan()
         if plan.duplicate:
             return plan, {"event": "DOCUMENT_DUPLICATE_DETECTED"}
         result = plan.result
-        document = IndexSourceDocument.objects.create(
-            sha256=result.sha256, original_filename=result.filename, nominal_year=plan.nominal_year,
-            nominal_month=plan.nominal_month, file_size=result.file_size, page_count=result.pages,
-            detected_periods=result.periods, source_reference=result.source_reference, source_url=self.source_url,
-            extraction_method=result.extractor, extraction_status=result.extraction_status,
-            notes="; ".join(result.flags + result.errors),
-        )
+        document = IndexSourceDocument.objects.filter(sha256=result.sha256).first()
+        if document is None:
+            document = IndexSourceDocument.objects.create(
+                sha256=result.sha256, original_filename=result.filename, nominal_year=plan.nominal_year,
+                nominal_month=plan.nominal_month, file_size=result.file_size, page_count=result.pages,
+                detected_periods=result.periods, source_reference=result.source_reference, source_url=self.source_url,
+                extraction_method=result.extractor, extraction_status=result.extraction_status,
+                notes="; ".join(result.flags + result.errors),
+            )
+        else:
+            # Reprocessing keeps the immutable document identity/hash while
+            # replacing only derived extraction rows with the higher-quality
+            # OCR result.
+            document.raw_extractions.all().delete()
+            for extracted in document.official_values.all():
+                extracted.comparisons.all().delete()
+            document.official_values.all().delete()
+            document.detected_periods = result.periods
+            document.source_reference = result.source_reference
+            document.source_url = self.source_url
+            document.extraction_method = result.extractor
+            document.extraction_status = result.extraction_status
+            document.notes = "; ".join(result.flags + result.errors)
+            document.save(update_fields=["detected_periods", "source_reference", "source_url", "extraction_method", "extraction_status", "notes"])
         for row in result.raw_rows:
             RawIndexExtraction.objects.create(
                 source_document=document, page_number=row.page, raw_code=row.raw_code,
@@ -149,7 +184,9 @@ class OfficialIndexValidationService:
             publication.save(update_fields=["document_hash"])
         for item in plan.comparisons:
             row = item["row"]
-            period = result.periods[int(row.source_column) - 1]
+            period = self._period_for_row(row, plan.nominal_year, plan.nominal_month, result.periods)
+            if not period:
+                continue
             row_year, row_month = map(int, period.split("-"))
             extracted, _ = OfficialExtractedValue.objects.update_or_create(
                 source_document=document, year=row_year, month=row_month,
@@ -167,17 +204,22 @@ class OfficialIndexValidationService:
             if status in {IndexValidationComparison.Status.ALL_MATCH, IndexValidationComparison.Status.OFFICIAL_API_MATCH_LOCAL_MISSING} and definition:
                 local = MonthlyIndexValue.objects.select_for_update().filter(index_definition=definition, year=row_year, month=row_month).first()
                 if local and local.status == MonthlyIndexValue.Status.DEFINITIVE:
+                    local.publication = publication
+                    local.source_document = result.filename
+                    local.source_reference = result.source_reference
+                    local.source_url = self.source_url
+                    local.save(update_fields=["publication", "source_document", "source_reference", "source_url", "updated_at"])
                     extracted.status = OfficialExtractedValue.Status.VALIDATED
                     extracted.save(update_fields=["status"])
                     continue
                 before_value, before_status = (local.value, local.status) if local else (None, "")
                 if local is None:
-                    local = MonthlyIndexValue.objects.create(index_definition=definition, publication=publication, year=row_year, month=row_month, value=item["official"], status=MonthlyIndexValue.Status.DEFINITIVE, source_url=self.source_url, source_document=self.document_reference, source_reference=result.source_reference, validated_at=timezone.now())
+                    local = MonthlyIndexValue.objects.create(index_definition=definition, publication=publication, year=row_year, month=row_month, value=item["official"], status=MonthlyIndexValue.Status.DEFINITIVE, source_url=self.source_url, source_document=result.filename, source_reference=result.source_reference, validated_at=timezone.now())
                 elif local.value == item["official"] and local.status == MonthlyIndexValue.Status.PENDING_VALIDATION:
                     local.publication = publication
                     local.status = MonthlyIndexValue.Status.DEFINITIVE
                     local.source_url = self.source_url
-                    local.source_document = self.document_reference
+                    local.source_document = result.filename
                     local.source_reference = result.source_reference
                     local.validated_at = timezone.now()
                     local.save(update_fields=["publication", "status", "source_url", "source_document", "source_reference", "validated_at", "updated_at"])

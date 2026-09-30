@@ -5,12 +5,13 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from companies.models import Company, Membership
 
 from .models import FormulaTerm, IndexDefinition, IndexPublication, Market, MarketFormula, MonthlyIndexValue, MonthlyWorkAllocation, RevisionGroup, Statement
-from .statement_services import calculate_statement_preview
+from .statement_services import StatementLockError, calculate_statement_preview, lock_statement
 from .services import CALCULATION_INDEX_POLICY, resolve_calculation_index
 
 
@@ -162,6 +163,105 @@ class V1StatementCalculationTests(TestCase):
         self.assertEqual(calculation.status_code, 200, calculation.data)
         self.assertEqual(calculation.data["total_allocated_amount"], Decimal("535776.00"))
         self.assertEqual(calculation.data["monthly_results"][-1]["monthly_amount"], Decimal("535776.00"))
+
+    def test_statement_update_preserves_decimal_and_allocations(self):
+        statement = self.make_statement()
+        allocation = self.add_month(statement, 2026, 8, "30")
+        response = self.client.patch(f"/api/markets/{self.market.id}/statements/{statement.id}/", {"number": 2, "date": "2026-09-09", "amount_ht": "123456.78", "observation": "Modifié"}, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        statement.refresh_from_db()
+        self.assertEqual(statement.amount_ht, Decimal("123456.78"))
+        self.assertEqual(statement.number, 2)
+        self.assertEqual(statement.observation, "Modifié")
+        self.assertTrue(MonthlyWorkAllocation.objects.filter(pk=allocation.pk).exists())
+
+    def test_statement_delete_cascades_allocations(self):
+        statement = self.make_statement()
+        self.add_month(statement, 2026, 8, "30")
+        response = self.client.delete(f"/api/markets/{self.market.id}/statements/{statement.id}/")
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(Statement.objects.filter(pk=statement.pk).exists())
+        self.assertEqual(MonthlyWorkAllocation.objects.filter(statement_id=statement.id).count(), 0)
+
+    def test_locked_statement_update_and_delete_are_refused(self):
+        statement = self.make_statement()
+        lock_statement(statement, "Révision validée")
+        patch_response = self.client.patch(f"/api/markets/{self.market.id}/statements/{statement.id}/", {"amount_ht": "1.00"}, format="json")
+        delete_response = self.client.delete(f"/api/markets/{self.market.id}/statements/{statement.id}/")
+        self.assertEqual(patch_response.status_code, 409)
+        self.assertEqual(patch_response.data["code"], "STATEMENT_LOCKED")
+        self.assertEqual(delete_response.status_code, 409)
+        self.assertTrue(Statement.objects.filter(pk=statement.pk).exists())
+
+    def test_locked_statement_put_returns_conflict_without_changing_data(self):
+        statement = lock_statement(self.make_statement("100.00"), "Révision validée")
+        before = {
+            field: getattr(statement, field)
+            for field in ("number", "date", "amount_ht", "observation", "allocation_method", "locked_at", "lock_reason")
+        }
+
+        response = self.client.put(
+            f"/api/markets/{self.market.id}/statements/{statement.id}/",
+            {"number": 2, "date": "2026-09-09", "amount_ht": "123456.78", "observation": "Tentative PUT"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 409, response.data)
+        self.assertEqual(response.data["code"], "STATEMENT_LOCKED")
+        statement.refresh_from_db()
+        after = {
+            field: getattr(statement, field)
+            for field in before
+        }
+        self.assertEqual(after, before)
+        self.assertEqual(statement.locked_at, before["locked_at"])
+        self.assertEqual(statement.lock_reason, before["lock_reason"])
+
+    def test_lock_statement_locks_once_and_rejects_second_lock(self):
+        statement = self.make_statement()
+        locked = lock_statement(statement, "Révision validée")
+        self.assertTrue(locked.is_locked)
+        self.assertEqual(locked.lock_reason, "Révision validée")
+        with self.assertRaises(StatementLockError):
+            lock_statement(statement, "Autre raison")
+
+    def test_locked_fields_cannot_be_changed_or_cleared_by_model_save(self):
+        statement = self.make_statement()
+        lock_statement(statement, "Révision validée")
+
+        statement.refresh_from_db()
+        statement.locked_at = None
+        with self.assertRaises(ValidationError):
+            statement.save(update_fields=["locked_at"])
+
+        statement.refresh_from_db()
+        statement.locked_at = timezone.now()
+        with self.assertRaises(ValidationError):
+            statement.save(update_fields=["locked_at"])
+
+        statement.refresh_from_db()
+        statement.lock_reason = "Raison altérée"
+        with self.assertRaises(ValidationError):
+            statement.save(update_fields=["lock_reason"])
+
+    def test_locked_fields_are_not_user_writable_via_api(self):
+        statement = self.make_statement()
+        response = self.client.patch(
+            f"/api/markets/{self.market.id}/statements/{statement.id}/",
+            {"locked_at": timezone.now().isoformat(), "lock_reason": "Tentative"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        statement.refresh_from_db()
+        self.assertIsNone(statement.locked_at)
+        self.assertEqual(statement.lock_reason, "")
+
+    def test_statement_isolation_refuses_foreign_statement(self):
+        other_company = Company.objects.create(raison_sociale="Other Statement Company")
+        other_market = Market.objects.create(company=other_company, market_number="OTHER-STATEMENT", contracting_authority="SRM-SM", subject="Autres travaux", formula_structure=Market.FormulaStructure.SINGLE)
+        other_statement = Statement.objects.create(market=other_market, number=1, date=date(2026, 8, 9), amount_ht=Decimal("10.00"))
+        response = self.client.patch(f"/api/markets/{self.market.id}/statements/{other_statement.id}/", {"amount_ht": "1.00"}, format="json")
+        self.assertEqual(response.status_code, 404)
 
     def test_api_requires_market_permission_for_statement_creation(self):
         member = get_user_model().objects.create_user("v1-statement-member@example.com", "password-123")

@@ -101,7 +101,10 @@ def ocr_text(path: Path) -> tuple[str, str, list[str]]:
     try:
         with tempfile.TemporaryDirectory(prefix="index-ocr-") as temp:
             prefix = Path(temp) / "page"
-            _run(["pdftoppm", "-jpeg", "-r", "100", str(path), str(prefix)], text=False)
+            # 300 DPI is required for the small BAT code glyphs and decimal
+            # separators in scanned official bulletins.  Lower resolution
+            # turns BAT3 into BATS/BAT and 340,1 into 3401.
+            _run(["pdftoppm", "-jpeg", "-r", "300", str(path), str(prefix)], text=False)
             pages = sorted(Path(temp).glob("page-*.jpg"))
             if not pages:
                 return "", METHOD_MANUAL, ["Aucune page rasterisée"]

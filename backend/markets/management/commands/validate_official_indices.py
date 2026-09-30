@@ -13,9 +13,12 @@ class Command(BaseCommand):
         parser.add_argument("--file", required=True, type=Path)
         parser.add_argument("--source-url", default="")
         parser.add_argument("--document-reference", default="")
+        parser.add_argument("--source-reference", default="")
         parser.add_argument("--publication-date", default="")
         parser.add_argument("--dry-run", action="store_true", help="Mode lecture seule; mode par défaut.")
-        parser.add_argument("--apply", action="store_true", help="Applique sur TEST_DATABASE uniquement.")
+        parser.add_argument("--apply", action="store_true", help="Applique explicitement les données officielles.")
+        parser.add_argument("--allow-live-database", action="store_true", help="Autorise l'application sur la base active, avec IDX_ALLOW_LIVE_APPLY=1.")
+        parser.add_argument("--reprocess-existing", action="store_true", help="Réextrait un document déjà enregistré avec l'extracteur courant.")
 
     def handle(self, *args, **options):
         if options["dry_run"] and options["apply"]:
@@ -29,7 +32,7 @@ class Command(BaseCommand):
                 publication_date = datetime.strptime(options["publication_date"], "%Y-%m-%d").date()
             except ValueError as exc:
                 raise CommandError("--publication-date doit être au format YYYY-MM-DD.") from exc
-        service = OfficialIndexValidationService(path, source_url=options["source_url"], document_reference=options["document_reference"], publication_date=publication_date)
+        service = OfficialIndexValidationService(path, source_url=options["source_url"], document_reference=options["document_reference"], source_reference=options["source_reference"], publication_date=publication_date, reprocess_existing=options["reprocess_existing"])
         plan = service.plan()
         if plan.duplicate:
             self.stdout.write("DOCUMENT_DUPLICATE_DETECTED")
@@ -48,7 +51,7 @@ class Command(BaseCommand):
             self.stdout.write("MODE=DRY_RUN")
             return
         try:
-            _, outcome = service.apply()
+            _, outcome = service.apply(allow_live=options["allow_live_database"])
         except RuntimeError as exc:
             raise CommandError(str(exc)) from exc
         self.stdout.write(f"EVENT={outcome['event']}")

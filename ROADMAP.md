@@ -45,6 +45,19 @@ disponibles pour les marchés `MULTIPLE` et ne sont pas supprimées.
 | LOT 8 | Référentiel officiel | BLOQUE |
 | LOT 9 | Production | BLOQUE |
 
+### DEC-02 — cycle de vie des décomptes
+
+DEC-02 est implémenté, testé et figé en v0.8.4. Un décompte non verrouillé
+peut être modifié ou supprimé ; sa suppression supprime transactionnellement
+ses `MonthlyWorkAllocation`. Dès qu'il est verrouillé, `locked_at` et
+`lock_reason` constituent un état irréversible : toute modification ou
+suppression est refusée en HTTP 409 avec `STATEMENT_LOCKED`, et les données
+restent inchangées. La future validation d'un `RevisionSnapshot` devra
+appeler `lock_statement()`.
+
+Le gel de DEC-02 ne débloque pas les autres éléments du LOT 3, ni les lots
+IDX-07/CALC-01, et n'autorise pas encore un déploiement de production.
+
 Les composants LOT 1B non couverts par Market et MarketLot restent hors
 périmètre jusqu'à une autorisation distincte.
 

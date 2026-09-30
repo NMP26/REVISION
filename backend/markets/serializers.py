@@ -211,11 +211,16 @@ class StatementSerializer(serializers.ModelSerializer):
     amount_ht = StrictDecimalField(max_digits=18, decimal_places=2)
     market = serializers.PrimaryKeyRelatedField(read_only=True)
     allocation_method = serializers.ChoiceField(choices=Statement.AllocationMethod.choices, read_only=True)
+    is_locked = serializers.BooleanField(read_only=True)
+    lock_message = serializers.SerializerMethodField()
 
     class Meta:
         model = Statement
-        fields = ["id", "market", "number", "date", "amount_ht", "observation", "allocation_method", "created_at", "updated_at"]
-        read_only_fields = ["id", "market", "allocation_method", "created_at", "updated_at"]
+        fields = ["id", "market", "number", "date", "amount_ht", "observation", "allocation_method", "is_locked", "lock_message", "created_at", "updated_at"]
+        read_only_fields = ["id", "market", "allocation_method", "is_locked", "lock_message", "created_at", "updated_at"]
+
+    def get_lock_message(self, statement):
+        return "Décompte verrouillé : une révision validée utilise ce décompte." if statement.is_locked else None
 
 
 class MonthlyWorkAllocationSerializer(serializers.ModelSerializer):

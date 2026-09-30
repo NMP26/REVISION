@@ -1,4 +1,4 @@
-STATUS: APPROVED FOR V1 SCOPE — IMPLEMENTATION NOT AUTHORIZED
+STATUS: IMPLEMENTED — TESTED — FROZEN FOR DEC-02
 SOURCE: décision produit V1 — décompte simple et jours de travaux par mois
 
 # Décomptes
@@ -36,10 +36,34 @@ Montant_mois = Montant_HT_décompte × jours_mois / total_jours
 
 La somme des montants mensuels doit égaler exactement le montant HT du
 décompte. L'écart d'arrondi éventuel est affecté explicitement à la dernière
-ligne/mois. Cette règle est planifiée pour V1-C ; aucune migration n'est
-créée par cette spécification.
+ligne/mois. Cette règle est planifiée pour V1-C. La structure d'allocation
+est introduite additivement et ne supprime aucune donnée existante.
 
-Gabarit réservé à la spécification validée des décomptes.
+## DEC-02 — cycle de vie et verrouillage
+
+Un `Statement` non verrouillé peut être modifié ou supprimé par un utilisateur
+autorisé sur le marché. La suppression est transactionnelle et supprime en
+cascade ses `MonthlyWorkAllocation` associées ; aucune allocation orpheline
+ne doit subsister.
+
+Un décompte verrouillé est identifié par `locked_at` non nul et conserve la
+raison dans `lock_reason`. Le verrouillage est irréversible : les champs de
+verrouillage ne sont pas modifiables par l'API, et aucune opération de
+déverrouillage n'est exposée. Toute tentative de modification, y compris un
+`PUT` complet, ou de suppression répond HTTP `409 Conflict` avec le code
+`STATEMENT_LOCKED` et ne modifie aucune donnée du décompte.
+
+Le verrouillage est réalisé exclusivement par `lock_statement()`, qui exige
+une raison et refuse un second verrouillage. Lorsqu'un futur
+`RevisionSnapshot` sera validé, son orchestration métier devra appeler
+`lock_statement()` dans la transaction de validation avant de considérer la
+révision comme validée.
+
+La migration additive correspondante est
+`backend/markets/migrations/0015_statement_lock.py`.
+
+Le parcours détaillé `StatementItem` et les règles réglementaires de
+validation définitive restent hors du gel DEC-02.
 
 ## Concepts approuvés
 

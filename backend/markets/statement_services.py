@@ -5,10 +5,38 @@ from __future__ import annotations
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
+from django.db import transaction
+from django.utils import timezone
 
 from .calculation_engine import AllocationInput, CalculationInputError, ROUNDING_POLICY_PENDING, allocate_amount, evaluate_simple_formula, formula_parameters
 from .models import MarketFormula, MonthlyIndexValue, Statement
 from . import services
+
+
+class StatementLockError(Exception):
+    """Raised when a Statement cannot be locked through the business service."""
+
+
+@transaction.atomic
+def lock_statement(statement, reason, *, locked_at=None):
+    """Lock an unlocked Statement for a validated business event.
+
+    Future RevisionSnapshot validation must call this service. Statement keeps
+    the persistent lock state and there is intentionally no unlock path.
+    """
+    if not reason or not reason.strip():
+        raise ValidationError({"lock_reason": "La raison du verrouillage est obligatoire."})
+
+    current = Statement.objects.select_for_update().get(pk=statement.pk)
+    if current.is_locked:
+        raise StatementLockError("Le décompte est déjà verrouillé.")
+
+    Statement.objects.filter(pk=current.pk, locked_at__isnull=True).update(
+        locked_at=locked_at or timezone.now(),
+        lock_reason=reason.strip(),
+        updated_at=timezone.now(),
+    )
+    return Statement.objects.get(pk=current.pk)
 
 
 def v1_formula_for_market(market):

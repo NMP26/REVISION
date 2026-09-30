@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.8.4 — DEC-02 : cycle de vie et verrouillage des décomptes
+
+- Modification et suppression autorisées pour un décompte non verrouillé.
+- Suppression transactionnelle du décompte et de ses
+  `MonthlyWorkAllocation` associées.
+- Verrouillage irréversible via `locked_at` et `lock_reason`.
+- Modification ou suppression d'un décompte verrouillé refusée en HTTP 409
+  avec le code `STATEMENT_LOCKED`, sans modification des données.
+- Les champs de verrouillage ne sont pas exposés en écriture par l'API.
+- La future validation d'un `RevisionSnapshot` devra appeler
+  `lock_statement()` dans la même orchestration métier.
+- Revue finale DEC-02 validée : backend 170/170, frontend 71/71 et build
+  frontend validés ; migration additive `0015_statement_lock.py`.
+
 ## IDX-06 / CALC-01 — Correction contrôlée en revue finale
 
 - Promotion documentaire limitée au workflow officiel, sans écrasement silencieux et avec audit append-only.

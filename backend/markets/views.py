@@ -182,24 +182,30 @@ class StatementDetailView(APIView):
     def put(self, request, market_id, statement_id):
         return self._update(request, market_id, statement_id, partial=False)
 
+    @transaction.atomic
     def _update(self, request, market_id, statement_id, partial):
         statement = self.get_statement(request, market_id, statement_id)
         if statement is None:
             return error_response("NOT_FOUND", "Décompte introuvable.", http_status=status.HTTP_404_NOT_FOUND)
         if not can_update_market(request.user, statement.market):
             return error_response("PERMISSION_DENIED", "Action non autorisée.", http_status=status.HTTP_403_FORBIDDEN)
+        if statement.is_locked:
+            return error_response("STATEMENT_LOCKED", "Décompte verrouillé : une révision validée utilise ce décompte.", http_status=status.HTTP_409_CONFLICT)
         serializer = StatementSerializer(statement, data=request.data, partial=partial)
         if not serializer.is_valid():
             return error_response("VALIDATION_ERROR", "Les données du décompte sont invalides.", serializer_errors(serializer))
         serializer.save()
         return Response(StatementSerializer(statement).data)
 
+    @transaction.atomic
     def delete(self, request, market_id, statement_id):
         statement = self.get_statement(request, market_id, statement_id)
         if statement is None:
             return error_response("NOT_FOUND", "Décompte introuvable.", http_status=status.HTTP_404_NOT_FOUND)
         if not can_update_market(request.user, statement.market):
             return error_response("PERMISSION_DENIED", "Action non autorisée.", http_status=status.HTTP_403_FORBIDDEN)
+        if statement.is_locked:
+            return error_response("STATEMENT_LOCKED", "Décompte verrouillé : une révision validée utilise ce décompte.", http_status=status.HTTP_409_CONFLICT)
         statement.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -222,6 +228,8 @@ class MonthlyWorkAllocationListCreateView(APIView):
             return error_response("NOT_FOUND", "Décompte introuvable.", http_status=status.HTTP_404_NOT_FOUND)
         if not can_update_market(request.user, statement.market):
             return error_response("PERMISSION_DENIED", "Action non autorisée.", http_status=status.HTTP_403_FORBIDDEN)
+        if statement.is_locked:
+            return error_response("STATEMENT_LOCKED", "Décompte verrouillé : une révision validée utilise ce décompte.", http_status=status.HTTP_409_CONFLICT)
         serializer = MonthlyWorkAllocationSerializer(data=request.data)
         if not serializer.is_valid():
             return error_response("VALIDATION_ERROR", "La répartition mensuelle est invalide.", serializer_errors(serializer))
@@ -246,6 +254,8 @@ class MonthlyWorkAllocationDetailView(APIView):
             return error_response("NOT_FOUND", "Répartition mensuelle introuvable.", http_status=status.HTTP_404_NOT_FOUND)
         if not can_update_market(request.user, allocation.statement.market):
             return error_response("PERMISSION_DENIED", "Action non autorisée.", http_status=status.HTTP_403_FORBIDDEN)
+        if allocation.statement.is_locked:
+            return error_response("STATEMENT_LOCKED", "Décompte verrouillé : une révision validée utilise ce décompte.", http_status=status.HTTP_409_CONFLICT)
         serializer = MonthlyWorkAllocationSerializer(allocation, data=request.data, partial=True)
         if not serializer.is_valid():
             return error_response("VALIDATION_ERROR", "La répartition mensuelle est invalide.", serializer_errors(serializer))

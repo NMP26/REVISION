@@ -275,6 +275,8 @@ class Statement(models.Model):
     amount_ht = models.DecimalField(max_digits=18, decimal_places=2, validators=[MinValueValidator(Decimal("0"))])
     observation = models.TextField(blank=True)
     allocation_method = models.CharField(max_length=32, choices=AllocationMethod.choices, default=AllocationMethod.ACTUAL_EXECUTION)
+    locked_at = models.DateTimeField(null=True, blank=True)
+    lock_reason = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -292,8 +294,21 @@ class Statement(models.Model):
         if errors:
             raise ValidationError(errors)
 
+    @property
+    def is_locked(self):
+        return self.locked_at is not None
+
     def save(self, *args, **kwargs):
         self.full_clean()
+        if self.pk and not self._state.adding:
+            persisted = type(self).objects.filter(pk=self.pk).values("locked_at", "lock_reason").first()
+            if persisted is not None and (
+                persisted["locked_at"] != self.locked_at
+                or persisted["lock_reason"] != self.lock_reason
+            ):
+                raise ValidationError(
+                    "Le verrouillage d'un décompte est irréversible et ne peut être modifié que par lock_statement()."
+                )
         return super().save(*args, **kwargs)
 
 

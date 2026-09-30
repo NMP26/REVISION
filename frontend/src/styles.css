@@ -58,6 +58,11 @@ button:disabled { opacity: .6; cursor: wait; }
 .company-row > div span { margin-top: 5px; color: #6c8293; font-size: .9rem; }
 .company-row > div:last-child { text-align: right; }
 .company-row .amount { color: #35536c; font-weight: 700; }
+.statement-row { gap: 18px; flex-wrap: wrap; }
+.statement-select { display: flex; flex: 1 1 360px; justify-content: space-between; gap: 24px; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.statement-actions { flex: 0 0 auto; }
+.danger-button { border: 1px solid #e4b4b4; border-radius: 9px; padding: 10px 14px; cursor: pointer; font-weight: 750; color: #9b2c2c; background: #fff5f5; }
+.statement-lock { flex-basis: 100%; color: #9b2c2c; font-size: .85rem; }
 .badge { padding: 5px 9px; border-radius: 999px; font-size: .75rem; font-weight: 800; }
 .badge.active { color: #13734b; background: #e0f5eb; }
 .badge.inactive { color: #826a24; background: #fff8dc; }
@@ -134,6 +139,7 @@ button:disabled { opacity: .6; cursor: wait; }
   .consortium-member-row, .consortium-detail-row { grid-template-columns: 1fr; align-items: stretch; }
   .page-heading { gap: 14px; }
   .company-row > div:last-child { text-align: left; }
+  .statement-select { align-items: flex-start; flex-direction: column; gap: 12px; }
   .assignment-summary { align-items: flex-start; flex-direction: column; }
   .pending-row { align-items: flex-start; flex-direction: column; }
 }
