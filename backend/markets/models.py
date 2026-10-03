@@ -582,6 +582,10 @@ class IndexDefinition(models.Model):
 
 
 class IndexPublication(models.Model):
+    class ImportMethod(models.TextChoices):
+        MANUAL = "MANUAL", "Import manuel"
+        OFFICIAL_AUTO = "OFFICIAL_AUTO", "Découverte officielle"
+
     class SourceType(models.TextChoices):
         OFFICIAL = "OFFICIAL", "Officielle"
         EXTERNAL_SECONDARY = "EXTERNAL_SECONDARY", "Source externe secondaire"
@@ -597,17 +601,21 @@ class IndexPublication(models.Model):
     month = models.PositiveSmallIntegerField(validators=[MinValueValidator(1), MaxValueValidator(12)])
     publication_date = models.DateField(null=True, blank=True)
     source_url = models.URLField(max_length=500, blank=True)
+    source_page_url = models.URLField(max_length=500, blank=True)
+    source_pdf_url = models.URLField(max_length=500, blank=True)
     document_reference = models.CharField(max_length=255)
     document_hash = models.CharField(max_length=64, blank=True)
     source_type = models.CharField(max_length=32, choices=SourceType.choices, default=SourceType.OFFICIAL)
+    import_method = models.CharField(max_length=20, choices=ImportMethod.choices, default=ImportMethod.MANUAL)
     status = models.CharField(max_length=30, choices=Status.choices, default=Status.IMPORTED)
     imported_at = models.DateTimeField(auto_now_add=True)
     validated_at = models.DateTimeField(null=True, blank=True)
+    validated_by = models.ForeignKey("accounts.User", on_delete=models.PROTECT, null=True, blank=True, related_name="index_publications_validated")
 
     class Meta:
         db_table = "markets_indexpublication"
         ordering = ["-year", "-month"]
-        constraints = [models.UniqueConstraint(fields=["year", "month", "source_type"], name="uniq_indexpublication_period_source")]
+        constraints = []
 
     def __str__(self):
         return f"{self.year:04d}-{self.month:02d} — {self.document_reference}"
@@ -673,6 +681,10 @@ class IndexSourceDocument(models.Model):
         PENDING_VALIDATION = "PENDING_VALIDATION", "Validation en attente"
         ERROR = "ERROR", "Erreur"
 
+    class ImportMethod(models.TextChoices):
+        MANUAL = "MANUAL", "Import manuel"
+        OFFICIAL_AUTO = "OFFICIAL_AUTO", "Découverte officielle"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     sha256 = models.CharField(max_length=64, unique=True)
     original_filename = models.CharField(max_length=255)
@@ -682,16 +694,45 @@ class IndexSourceDocument(models.Model):
     page_count = models.PositiveIntegerField(null=True, blank=True)
     detected_periods = models.JSONField(default=list)
     source_reference = models.CharField(max_length=1000)
+    stored_file = models.CharField(max_length=1000, blank=True)
     source_url = models.URLField(max_length=500, blank=True)
+    source_page_url = models.URLField(max_length=500, blank=True)
+    source_pdf_url = models.URLField(max_length=500, blank=True)
+    import_method = models.CharField(max_length=20, choices=ImportMethod.choices, default=ImportMethod.MANUAL)
     extraction_method = models.CharField(max_length=32, choices=ExtractionMethod.choices)
     extraction_status = models.CharField(max_length=32, choices=ExtractionStatus.choices)
     retrieved_at = models.DateTimeField(auto_now_add=True, null=True)
     processed_at = models.DateTimeField(auto_now_add=True)
+    validation_status = models.CharField(max_length=32, default="PENDING_VALIDATION")
+    validated_at = models.DateTimeField(null=True, blank=True)
+    validated_by = models.ForeignKey("accounts.User", on_delete=models.PROTECT, null=True, blank=True, related_name="index_documents_validated")
     notes = models.TextField(blank=True)
+    extracted_cells = models.PositiveIntegerField(default=0)
+    extracted_rows = models.PositiveIntegerField(default=0)
 
     class Meta:
         db_table = "markets_indexsourcedocument"
         ordering = ["original_filename"]
+
+
+class OfficialDiscoveryCheck(models.Model):
+    """Audit of an official publication page check; never a calculation source."""
+
+    class Status(models.TextChoices):
+        AVAILABLE = "AVAILABLE", "Disponible"
+        UNAVAILABLE = "OFFICIAL_SOURCE_UNAVAILABLE", "Source officielle indisponible"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    source_page_url = models.URLField(max_length=500)
+    checked_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(max_length=40, choices=Status.choices)
+    new_documents_count = models.PositiveIntegerField(default=0)
+    latest_new_document = models.ForeignKey(IndexSourceDocument, on_delete=models.PROTECT, null=True, blank=True, related_name="discovery_checks")
+    error_message = models.TextField(blank=True)
+
+    class Meta:
+        db_table = "markets_officialdiscoverycheck"
+        ordering = ["-checked_at"]
 
 
 class RawIndexExtraction(models.Model):
@@ -748,6 +789,10 @@ class OfficialExtractedValue(models.Model):
     page_number = models.PositiveIntegerField(null=True, blank=True)
     source_reference = models.CharField(max_length=1000, blank=True)
     ambiguity = models.TextField(blank=True)
+    resolved_index_definition = models.ForeignKey(IndexDefinition, on_delete=models.PROTECT, null=True, blank=True, related_name="manually_resolved_official_values")
+    resolution_method = models.CharField(max_length=32, blank=True)
+    resolved_by = models.ForeignKey("accounts.User", on_delete=models.PROTECT, null=True, blank=True, related_name="official_index_resolutions")
+    resolved_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

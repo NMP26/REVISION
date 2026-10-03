@@ -3,7 +3,7 @@ from decimal import Decimal
 from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
-from django.core.management import call_command
+from django.core.management import call_command, CommandError
 from django.test import TestCase
 from rest_framework.test import APIClient
 
@@ -68,11 +68,7 @@ class ExternalIndexStagingTests(TestCase):
         self.assertEqual([item["status"] for item in result], ["MATCHED", "MISSING_EVOLUTION_ENDPOINT"])
 
     def test_command_dry_run_does_not_write_database(self):
-        fake = Mock()
-        fake.get_index_names.return_value = [ExternalIndexName("BAT3")]
-        fake.get_indices_for_year.return_value = [external()]
-        fake.get_index_evolution.return_value = [ExternalIndexEvolutionPoint(date(2025, 11, 1), Decimal("337.8"), "11/2025")]
-        with patch("markets.management.commands.sync_revision_indices.RevisionDesPrixApiClient", return_value=fake):
+        with self.assertRaises(CommandError):
             call_command("sync_revision_indices", "--dry-run", "--year", "2025", "--code", "BAT3")
         self.assertEqual(ExternalIndexStaging.objects.count(), 0)
         self.assertEqual(MonthlyIndexValue.objects.count(), 1)

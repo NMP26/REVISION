@@ -7,12 +7,14 @@ normalised candidates so a later approval step can decide what becomes official.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import shutil
 import subprocess
 import tempfile
 import zipfile
-from concurrent.futures import ThreadPoolExecutor
+import unicodedata
+from difflib import SequenceMatcher
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -29,6 +31,73 @@ METHOD_NATIVE = "NATIVE_TEXT"
 METHOD_TABLE = "TABLE_EXTRACTION"
 METHOD_OCR = "OCR"
 METHOD_MANUAL = "MANUAL_REVIEW_REQUIRED"
+
+EXACT_MATCH = "EXACT_MATCH"
+STRUCTURAL_MATCH = "STRUCTURAL_MATCH"
+AMBIGUOUS = "AMBIGUOUS"
+NEW_OFFICIAL_CODE = "NEW_OFFICIAL_CODE"
+
+
+@dataclass(frozen=True)
+class CodeResolution:
+    code: str = ""
+    method: str = AMBIGUOUS
+    candidates: tuple[str, ...] = ()
+
+
+def _words(value: str) -> set[str]:
+    folded = unicodedata.normalize("NFKD", value.lower()).encode("ascii", "ignore").decode()
+    return {word for word in re.findall(r"[a-z0-9]+", folded) if len(word) > 2}
+
+
+def resolve_extracted_code(raw_code: str, raw_designation: str, definitions) -> CodeResolution:
+    """Resolve a short extracted code against the catalogue without guessing.
+
+    An exact catalogue code is accepted unless the row's designation is a
+    stronger structural match for another catalogue entry.  Ties and weak
+    evidence remain explicitly ambiguous; OCR character similarity is never a
+    resolution rule.
+    """
+    catalogue = {str(item.code).upper(): item for item in definitions}
+    extracted = (raw_code or "").strip()
+    case_matches = [item for item in definitions if str(item.code).upper() == extracted.upper()]
+    if len(case_matches) > 1 and not any(str(item.code) == extracted for item in case_matches):
+        return CodeResolution("", AMBIGUOUS, tuple(str(item.code) for item in case_matches))
+    exact = next((item for item in case_matches if str(item.code) == extracted), None) or (case_matches[0] if len(case_matches) == 1 else None)
+    row_words = _words(raw_designation)
+    scored = []
+    for code, definition in catalogue.items():
+        # Structure may disambiguate a short OCR token only among nearby
+        # catalogue codes; it cannot turn an unrelated unknown token into a
+        # valid index merely because the designation happens to overlap.
+        if extracted and (code[:1] != extracted[:1].upper() or abs(len(code) - len(extracted)) > 1):
+            continue
+        definition_words = _words(getattr(definition, "designation", ""))
+        overlap = len(row_words & definition_words)
+        fuzzy = sum(1 for row_word in row_words for definition_word in definition_words if SequenceMatcher(None, row_word, definition_word).ratio() >= 0.64)
+        structural_score = overlap * 2 + min(fuzzy, 2)
+        if structural_score:
+            scored.append((structural_score, code))
+    scored.sort(reverse=True)
+    if not exact and extracted:
+        prefix_candidates = [item.code for item in definitions if len(extracted) == len(str(item.code)) and len(re.match(r"^[A-Za-z]+", extracted).group(0)) >= 3 and str(item.code).upper().startswith(extracted[:3].upper())]
+        if prefix_candidates:
+            return CodeResolution("", AMBIGUOUS, tuple(prefix_candidates))
+    if exact and not scored:
+        return CodeResolution(exact.code, EXACT_MATCH, (exact.code,))
+    if exact and scored:
+        best_score, best_code = scored[0]
+        second_score = scored[1][0] if len(scored) > 1 else 0
+        if best_code == extracted.upper() and best_score > second_score:
+            return CodeResolution(exact.code, EXACT_MATCH, (exact.code,))
+        if best_code != extracted.upper() and best_score > 0 and best_score > second_score:
+            return CodeResolution(catalogue[best_code].code, STRUCTURAL_MATCH, (catalogue[best_code].code, exact.code))
+    if exact and len(scored) == 1:
+        return CodeResolution(catalogue[scored[0][1]].code, STRUCTURAL_MATCH, (catalogue[scored[0][1]].code,))
+    # A syntactically valid code absent from the catalogue is unknown, not a
+    # guessed match.  Only catalogue-backed alternatives are offered.
+    candidates = tuple(dict.fromkeys([*(catalogue[code].code for _, code in scored), *( [exact.code] if exact else [])]))
+    return CodeResolution("", AMBIGUOUS, candidates)
 
 
 @dataclass
@@ -60,6 +129,7 @@ class DocumentResult:
     errors: list[str] = field(default_factory=list)
     flags: list[str] = field(default_factory=list)
     source_reference: str = ""
+    page_details: list[dict] = field(default_factory=list)
 
     def as_dict(self):
         result = asdict(self)
@@ -75,8 +145,8 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _run(command: list[str], *, text=True) -> subprocess.CompletedProcess:
-    return subprocess.run(command, check=True, capture_output=True, text=text)
+def _run(command: list[str], *, text=True, timeout=None) -> subprocess.CompletedProcess:
+    return subprocess.run(command, check=True, capture_output=True, text=text, timeout=timeout)
 
 
 def page_count(path: Path) -> int | None:
@@ -95,37 +165,60 @@ def native_text(path: Path) -> str:
         return ""
 
 
-def ocr_text(path: Path) -> tuple[str, str, list[str]]:
-    """OCR only a document with no useful text layer."""
+def native_text_pages(path: Path) -> list[tuple[int, str]]:
+    """Extract native text page by page so image-only pages can be isolated."""
+    total = page_count(path)
+    if not total:
+        return []
+    pages = []
+    for number in range(1, total + 1):
+        try:
+            text = _run(["pdftotext", "-layout", "-f", str(number), "-l", str(number), str(path), "-"]).stdout
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            text = ""
+        pages.append((number, text))
+    return pages
+
+
+def _page_has_useful_text(text: str) -> bool:
+    return len(re.sub(r"\s", "", text)) >= 20
+
+
+def _page_detail(number: int, text: str) -> dict:
+    codes = sorted({match.group(0).upper() for match in re.finditer(r"\b(?:BAT[1-9]\d*|[A-Za-z]{1,4}\d?(?:bis)?)\b", text)})
+    return {"page": number, "text_chars": len(text), "index_codes_detected": codes}
+
+
+def ocr_text(path: Path, page_numbers: list[int] | None = None) -> tuple[str, str, list[str], list[dict]]:
+    """OCR only selected pages, with an independent timeout and partial results."""
     warnings = []
+    page_details = []
+    timeout = int(os.environ.get("IDX_OCR_PAGE_TIMEOUT_SECONDS", "20"))
+    render_timeout = int(os.environ.get("IDX_OCR_RENDER_TIMEOUT_SECONDS", "20"))
+    selected = page_numbers or list(range(1, (page_count(path) or 0) + 1))
     try:
         with tempfile.TemporaryDirectory(prefix="index-ocr-") as temp:
-            prefix = Path(temp) / "page"
-            # 300 DPI is required for the small BAT code glyphs and decimal
-            # separators in scanned official bulletins.  Lower resolution
-            # turns BAT3 into BATS/BAT and 340,1 into 3401.
-            _run(["pdftoppm", "-jpeg", "-r", "300", str(path), str(prefix)], text=False)
-            pages = sorted(Path(temp).glob("page-*.jpg"))
-            if not pages:
-                return "", METHOD_MANUAL, ["Aucune page rasterisée"]
             chunks = []
-            def read_page(item):
-                number, image = item
+            for number in selected:
+                prefix = Path(temp) / f"page-{number}"
                 try:
-                    text = _run(["tesseract", str(image), "stdout", "-l", "fra+eng", "--psm", "6"]).stdout
-                    return number, f"--- page-{number}.jpg ---\n{text}", None
+                    # Render only this page.  200 DPI avoids the old full-document
+                    # rasterization while retaining the scan's table glyphs.
+                    _run(["pdftoppm", "-f", str(number), "-l", str(number), "-singlefile", "-jpeg", "-r", "200", str(path), str(prefix)], text=False, timeout=render_timeout)
+                    image = prefix.with_suffix(".jpg")
+                    if not image.exists():
+                        warnings.append(f"OCR_PAGE_RENDER_FAILED:{number}")
+                        continue
+                    text = _run(["tesseract", str(image), "stdout", "-l", "fra+eng", "--psm", "6"], timeout=timeout).stdout
+                    chunks.append(f"--- page-{number} ---\n{text}")
+                    page_details.append(_page_detail(number, text))
+                except subprocess.TimeoutExpired:
+                    warnings.append(f"OCR_TIMEOUT_PAGE:{number}")
                 except (FileNotFoundError, subprocess.CalledProcessError) as exc:
-                    return number, "", f"OCR page {number}: {exc}"
-            with ThreadPoolExecutor(max_workers=4) as pool:
-                page_results = list(pool.map(read_page, enumerate(pages, start=1)))
-            for number, text, warning in page_results:
-                if warning:
-                    warnings.append(warning)
-                else:
-                    chunks.append(text)
-            return "\n".join(chunks), METHOD_OCR if chunks else METHOD_MANUAL, warnings
+                    warnings.append(f"OCR_PAGE_ERROR:{number}:{exc}")
+            return "\n".join(chunks), METHOD_OCR if chunks else METHOD_MANUAL, warnings, page_details
     except (FileNotFoundError, subprocess.CalledProcessError) as exc:
-        return "", METHOD_MANUAL, [f"Outils OCR indisponibles: {exc}"]
+        return "", METHOD_MANUAL, [f"Outils OCR indisponibles: {exc}"], page_details
 
 
 def _month_periods(text: str, filename: str) -> tuple[list[str], list[str]]:
@@ -181,9 +274,12 @@ def parse_decimal(raw: str) -> tuple[Decimal | None, str]:
 
 def _normalise_code(raw: str) -> tuple[str, str]:
     code = raw.strip()
-    if not _SAFE_CODES.fullmatch(code):
+    # The database remains authoritative for UNKNOWN_CODE classification.  The
+    # extractor must not silently discard a syntactically valid official code
+    # merely because the seed catalogue has not seen it yet.
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9]*(?:bis)?", code):
         return "", "CODE_AMBIGUOUS"
-    return code.upper(), ""
+    return code, ""
 
 
 def extract_rows(text: str, method: str, periods: list[str]) -> list[RawRow]:
@@ -229,11 +325,31 @@ def extract_rows(text: str, method: str, periods: list[str]) -> list[RawRow]:
 
 def analyse_pdf(path: Path, source_reference: str = "") -> DocumentResult:
     digest = sha256_file(path)
-    text = native_text(path)
-    method = METHOD_NATIVE if len(re.sub(r"\s", "", text)) >= 100 else ""
+    native_pages = native_text_pages(path)
+    useful_native_pages = [number for number, text in native_pages if _page_has_useful_text(text)]
+    missing_pages = [number for number, text in native_pages if not _page_has_useful_text(text)]
+    if not native_pages:
+        text = native_text(path)
+        useful_native_pages = [1] if _page_has_useful_text(text) else []
+        missing_pages = [] if useful_native_pages else list(range(1, (page_count(path) or 0) + 1))
+        native_pages = [(1, text)] if text else []
+    native_chunks = [f"--- page-{number} ---\n{text}" for number, text in native_pages if _page_has_useful_text(text)]
+    text = "\n".join(native_chunks)
+    method = METHOD_NATIVE if useful_native_pages and not missing_pages else (METHOD_TABLE if useful_native_pages else "")
     warnings = []
-    if not method:
-        text, method, warnings = ocr_text(path)
+    page_details = [_page_detail(number, page_text) for number, page_text in native_pages]
+    if missing_pages:
+        ocr_output, ocr_method, ocr_warnings, ocr_details = ocr_text(path, missing_pages)
+        if ocr_output:
+            text = "\n".join(filter(None, [text, ocr_output]))
+            method = METHOD_OCR if not useful_native_pages else METHOD_TABLE
+        elif not useful_native_pages:
+            method = METHOD_MANUAL
+        warnings.extend(ocr_warnings)
+        page_details = [detail for detail in page_details if detail["page"] not in missing_pages]
+        page_details.extend(ocr_details)
+    elif not text:
+        method = METHOD_MANUAL
     periods, month_flags = _month_periods(text, path.name)
     flags = list(month_flags)
     flags.extend(warnings)
@@ -260,6 +376,7 @@ def analyse_pdf(path: Path, source_reference: str = "") -> DocumentResult:
         errors=warnings,
         flags=flags,
         source_reference=source_reference or str(path),
+        page_details=sorted(page_details, key=lambda item: item["page"]),
     )
 
 

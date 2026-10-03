@@ -23,6 +23,10 @@ def resolve_index(index_code, year, month):
         index_definition__code=index_code,
         year=year,
         month=month,
+        publication__source_type__in=[
+            "OFFICIAL",
+            "MANUAL_VALIDATED",
+        ],
     )
     # Prefer the definitive local value for this exact code/month.  Keep the
     # non-definitive row as the fallback only for administrative visibility;

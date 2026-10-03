@@ -30,9 +30,11 @@ class IndexDefinitionSerializer(serializers.ModelSerializer):
 
 
 class IndexPublicationSerializer(serializers.ModelSerializer):
+    indices_count = serializers.IntegerField(source="values.count", read_only=True)
+
     class Meta:
         model = IndexPublication
-        fields = ["id", "year", "month", "publication_date", "source_url", "document_reference", "document_hash", "source_type", "status", "imported_at", "validated_at"]
+        fields = ["id", "year", "month", "publication_date", "source_url", "source_page_url", "source_pdf_url", "document_reference", "document_hash", "source_type", "import_method", "status", "imported_at", "validated_at", "validated_by", "indices_count"]
 
 
 class MonthlyIndexValueSerializer(serializers.ModelSerializer):

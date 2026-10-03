@@ -1,6 +1,9 @@
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -10,7 +13,7 @@ from accounts.views import error_response
 from companies.models import Company
 from companies.permissions import can_read_global_resources, can_update, get_membership
 
-from .models import ExternalIndexStaging, FormulaTemplate, IndexDefinition, IndexPublication, Market, MarketLot, MonthlyIndexValue, MonthlyWorkAllocation, PriceItem, PriceSchedule, Statement
+from .models import ExternalIndexStaging, FormulaTemplate, IndexDefinition, IndexPublication, IndexSourceDocument, Market, MarketLot, MonthlyIndexValue, MonthlyWorkAllocation, OfficialExtractedValue, PriceItem, PriceSchedule, Statement
 from .permissions import can_update_market
 from .serializers import (
     FormulaTemplateSerializer, MarketFormulaSerializer, MarketLotSerializer, MarketSerializer,
@@ -20,6 +23,7 @@ from .serializers import (
 from .services import bulk_assign_price_items, copy_formula_template, create_price_item, create_price_schedule, resolve_base_index, resolve_index, resolve_v1_base_index, set_revision_application, update_price_item
 from .statement_services import calculate_statement_preview
 from .models import MarketFormula, RevisionGroup
+from .official_ingestion import OfficialIngestionError, Provenance, check_official_publications, create_official_definition, ingest_official_bareme, validate_official_bareme
 
 
 def serializer_errors(serializer):
@@ -41,7 +45,8 @@ class IndexDefinitionListView(APIView):
             return error_response("PERMISSION_DENIED", "Une Membership active est requise.", http_status=status.HTTP_403_FORBIDDEN)
         queryset = IndexDefinition.objects.all()
         if request.query_params.get("code"):
-            queryset = queryset.filter(code__icontains=request.query_params["code"].strip())
+            search = request.query_params["code"].strip()
+            queryset = queryset.filter(Q(code__icontains=search) | Q(designation__icontains=search))
         if request.query_params.get("domain"):
             queryset = queryset.filter(domain__iexact=request.query_params["domain"].strip())
         if request.query_params.get("active") in {"true", "false"}:
@@ -55,7 +60,7 @@ class IndexPublicationListView(APIView):
     def get(self, request):
         if not can_read_global_resources(request.user):
             return error_response("PERMISSION_DENIED", "Une Membership active est requise.", http_status=status.HTTP_403_FORBIDDEN)
-        queryset = IndexPublication.objects.all()
+        queryset = IndexPublication.objects.filter(source_type__in=[IndexPublication.SourceType.OFFICIAL, IndexPublication.SourceType.MANUAL_VALIDATED])
         if request.query_params.get("year"):
             queryset = queryset.filter(year=request.query_params["year"])
         if request.query_params.get("month"):
@@ -71,18 +76,28 @@ class MonthlyIndexValueListView(APIView):
     def get(self, request):
         if not can_read_global_resources(request.user):
             return error_response("PERMISSION_DENIED", "Une Membership active est requise.", http_status=status.HTTP_403_FORBIDDEN)
-        queryset = MonthlyIndexValue.objects.select_related("index_definition", "publication")
+        queryset = MonthlyIndexValue.objects.select_related("index_definition", "publication").filter(
+            publication__source_type__in=[IndexPublication.SourceType.OFFICIAL, IndexPublication.SourceType.MANUAL_VALIDATED]
+        ).order_by("index_definition__code", "year", "month")
         if request.query_params.get("year"):
             queryset = queryset.filter(year=request.query_params["year"])
         if request.query_params.get("month"):
             queryset = queryset.filter(month=request.query_params["month"])
         if request.query_params.get("code"):
-            queryset = queryset.filter(index_definition__code__icontains=request.query_params["code"].strip())
+            search = request.query_params["code"].strip()
+            queryset = queryset.filter(Q(index_definition__code__icontains=search) | Q(index_definition__designation__icontains=search))
         if request.query_params.get("domain"):
             queryset = queryset.filter(index_definition__domain__iexact=request.query_params["domain"].strip())
         if request.query_params.get("status"):
             queryset = queryset.filter(status=request.query_params["status"])
-        return Response(MonthlyIndexValueSerializer(queryset, many=True).data)
+        try:
+            page = max(1, int(request.query_params.get("page", "1")))
+            page_size = min(100, max(1, int(request.query_params.get("page_size", "50"))))
+        except ValueError:
+            return error_response("VALIDATION_ERROR", "Les paramètres de pagination sont invalides.", http_status=status.HTTP_400_BAD_REQUEST)
+        total = queryset.count()
+        start = (page - 1) * page_size
+        return Response({"results": MonthlyIndexValueSerializer(queryset[start:start + page_size], many=True).data, "count": total, "page": page, "page_size": page_size, "has_next": start + page_size < total, "has_previous": page > 1})
 
 
 class MonthlyIndexValueDetailView(APIView):
@@ -117,6 +132,100 @@ class ExternalIndexStagingListView(APIView):
         total = queryset.count()
         start = (page - 1) * page_size
         return Response({"results": ExternalIndexStagingSerializer(queryset[start:start + page_size], many=True).data, "count": total, "page": page, "page_size": page_size, "has_next": start + page_size < total})
+
+
+class OfficialImportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if not can_read_global_resources(request.user):
+            return error_response("PERMISSION_DENIED", "Une Membership active est requise.", http_status=status.HTTP_403_FORBIDDEN)
+        upload = request.FILES.get("file")
+        if upload is None:
+            return error_response("VALIDATION_ERROR", "Le PDF officiel est obligatoire.", http_status=status.HTTP_400_BAD_REQUEST)
+        if upload.size > 50 * 1024 * 1024:
+            return error_response("VALIDATION_ERROR", "Le PDF dépasse la taille maximale autorisée.", http_status=status.HTTP_400_BAD_REQUEST)
+        suffix = Path(upload.name).suffix or ".pdf"
+        try:
+            with NamedTemporaryFile(suffix=suffix) as stream:
+                for chunk in upload.chunks():
+                    stream.write(chunk)
+                stream.flush()
+                outcome = ingest_official_bareme(Path(stream.name), Provenance(import_method=IndexSourceDocument.ImportMethod.MANUAL))
+        except OfficialIngestionError as exc:
+            return error_response(exc.code, str(exc), http_status=exc.status)
+        return Response(outcome, status=status.HTTP_201_CREATED)
+
+
+class OfficialImportValidationView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, document_id):
+        if not can_read_global_resources(request.user):
+            return error_response("PERMISSION_DENIED", "Une Membership active est requise.", http_status=status.HTTP_403_FORBIDDEN)
+        try:
+            preview = validate_official_bareme(document_id, actor=request.user, confirm_conflicts=bool(request.data.get("confirm_conflicts", False)))
+        except IndexSourceDocument.DoesNotExist:
+            return error_response("NOT_FOUND", "Document importé introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        except OfficialIngestionError as exc:
+            return error_response(exc.code, str(exc), http_status=exc.status)
+        return Response(preview)
+
+
+class OfficialImportRowResolutionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, document_id, row_id):
+        if not can_read_global_resources(request.user):
+            return error_response("PERMISSION_DENIED", "Une Membership active est requise.", http_status=status.HTTP_403_FORBIDDEN)
+        try:
+            row = OfficialExtractedValue.objects.select_related("source_document").get(pk=row_id, source_document_id=document_id)
+            definition = IndexDefinition.objects.get(pk=request.data.get("index_definition"), active=True)
+        except (OfficialExtractedValue.DoesNotExist, IndexDefinition.DoesNotExist, ValueError, TypeError):
+            return error_response("INVALID_RESOLUTION", "L'IndexDefinition sélectionné est invalide.", http_status=status.HTTP_400_BAD_REQUEST)
+        row.normalized_code = definition.code
+        row.resolved_index_definition = definition
+        row.resolution_method = "MANUAL"
+        row.resolved_by = request.user
+        row.resolved_at = timezone.now()
+        row.ambiguity = ""
+        row.status = OfficialExtractedValue.Status.PENDING_VALIDATION
+        row.save(update_fields=["normalized_code", "resolved_index_definition", "resolution_method", "resolved_by", "resolved_at", "ambiguity", "status"])
+        from .official_ingestion import _preview
+        return Response(_preview(row.source_document))
+
+
+class OfficialImportNewDefinitionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, document_id, row_id):
+        if not can_read_global_resources(request.user):
+            return error_response("PERMISSION_DENIED", "Une Membership active est requise.", http_status=status.HTTP_403_FORBIDDEN)
+        try:
+            preview = create_official_definition(document_id, row_id, request.data.get("designation", ""), request.user, request.data.get("code", ""))
+        except IndexSourceDocument.DoesNotExist:
+            return error_response("NOT_FOUND", "Document importé introuvable.", http_status=status.HTTP_404_NOT_FOUND)
+        except OfficialIngestionError as exc:
+            return error_response(exc.code, str(exc), http_status=exc.status)
+        return Response(preview)
+
+
+class OfficialDiscoveryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not can_read_global_resources(request.user):
+            return error_response("PERMISSION_DENIED", "Une Membership active est requise.", http_status=status.HTTP_403_FORBIDDEN)
+        from .models import OfficialDiscoveryCheck
+        check = OfficialDiscoveryCheck.objects.first()
+        if check is None:
+            return Response({"status": "NOT_CHECKED", "checked_at": None, "new_documents": 0, "latest_new_document": None})
+        return Response({"status": check.status, "checked_at": check.checked_at, "new_documents": check.new_documents_count, "latest_new_document": str(check.latest_new_document_id) if check.latest_new_document_id else None, "error": check.error_message})
+
+    def post(self, request):
+        if not can_read_global_resources(request.user):
+            return error_response("PERMISSION_DENIED", "Une Membership active est requise.", http_status=status.HTTP_403_FORBIDDEN)
+        return Response(check_official_publications())
 
 
 class MarketBaseIndexView(APIView):

@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.9.0 — IDX : import officiel des barèmes
+
+- Import des barèmes PDF officiels avec conservation du document et hash SHA256.
+- Preview obligatoire avant validation, avec blocage des anomalies et conflits.
+- Résolution manuelle des ambiguïtés et création contrôlée de nouveaux codes.
+- Découverte des nouvelles publications officielles sans validation automatique.
+- Consultation des valeurs depuis PostgreSQL uniquement ; le calcul reste limité
+  aux valeurs `DEFINITIVE`, sans fallback mensuel.
+- Migrations additives `0016` à `0019`, sans modification des données de marchés
+  ou de décomptes.
+- Validation finale : backend 196/196, frontend 73/73, build PASS et
+  `makemigrations --check` PASS.
+- Aucun déploiement ni changement de production inclus dans ce gel.
+
 ## v0.8.4 — DEC-02 : cycle de vie et verrouillage des décomptes
 
 - Modification et suppression autorisées pour un décompte non verrouillé.

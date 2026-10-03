@@ -9,6 +9,7 @@ from .views import (
     PriceScheduleDetailView, PriceScheduleView, RevisionApplicationView,
     IndexDefinitionListView, IndexPublicationListView, MonthlyIndexValueDetailView, MonthlyIndexValueListView, MarketBaseIndexView,
     ExternalIndexStagingListView, MonthlyWorkAllocationDetailView, MonthlyWorkAllocationListCreateView, StatementCalculationView, StatementDetailView, StatementListCreateView,
+    OfficialImportView, OfficialImportValidationView, OfficialImportRowResolutionView, OfficialImportNewDefinitionView, OfficialDiscoveryView,
 )
 
 urlpatterns = [
@@ -35,6 +36,11 @@ urlpatterns = [
     path("indices/values/", MonthlyIndexValueListView.as_view(), name="monthly-index-value-list"),
     path("indices/values/<uuid:value_id>/", MonthlyIndexValueDetailView.as_view(), name="monthly-index-value-detail"),
     path("indices/staging/", ExternalIndexStagingListView.as_view(), name="external-index-staging-list"),
+    path("indices/official-imports/", OfficialImportView.as_view(), name="official-index-import"),
+    path("indices/official-imports/<uuid:document_id>/validate/", OfficialImportValidationView.as_view(), name="official-index-import-validate"),
+    path("indices/official-imports/<uuid:document_id>/rows/<uuid:row_id>/resolve/", OfficialImportRowResolutionView.as_view(), name="official-index-row-resolve"),
+    path("indices/official-imports/<uuid:document_id>/rows/<uuid:row_id>/create-definition/", OfficialImportNewDefinitionView.as_view(), name="official-index-row-create-definition"),
+    path("indices/official-discovery/", OfficialDiscoveryView.as_view(), name="official-index-discovery"),
     path("markets/<uuid:market_id>/base-index/", MarketBaseIndexView.as_view(), name="market-base-index"),
     path("markets/<uuid:market_id>/statements/", StatementListCreateView.as_view(), name="statement-list-create"),
     path("markets/<uuid:market_id>/statements/<uuid:statement_id>/", StatementDetailView.as_view(), name="statement-detail"),

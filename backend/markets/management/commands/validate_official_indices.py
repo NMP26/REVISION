@@ -1,58 +1,33 @@
-from datetime import datetime
 from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
 
-from markets.official_validation import OfficialIndexValidationService
+from markets.official_ingestion import OfficialIngestionError, Provenance, ingest_official_bareme, validate_official_bareme
+from markets.models import IndexSourceDocument
 
 
 class Command(BaseCommand):
-    help = "Extrait un barème officiel, compare API/local et valide explicitement (dry-run par défaut)."
+    help = "Importe un PDF officiel dans le pipeline partagé; validation explicite facultative."
 
     def add_arguments(self, parser):
         parser.add_argument("--file", required=True, type=Path)
-        parser.add_argument("--source-url", default="")
-        parser.add_argument("--document-reference", default="")
-        parser.add_argument("--source-reference", default="")
-        parser.add_argument("--publication-date", default="")
-        parser.add_argument("--dry-run", action="store_true", help="Mode lecture seule; mode par défaut.")
-        parser.add_argument("--apply", action="store_true", help="Applique explicitement les données officielles.")
-        parser.add_argument("--allow-live-database", action="store_true", help="Autorise l'application sur la base active, avec IDX_ALLOW_LIVE_APPLY=1.")
-        parser.add_argument("--reprocess-existing", action="store_true", help="Réextrait un document déjà enregistré avec l'extracteur courant.")
+        parser.add_argument("--source-url", default="", help="URL PDF officielle; vide pour un upload manuel.")
+        parser.add_argument("--apply", action="store_true", help="Valide explicitement le barème après prévisualisation.")
+        parser.add_argument("--confirm-conflicts", action="store_true")
 
     def handle(self, *args, **options):
-        if options["dry_run"] and options["apply"]:
-            raise CommandError("--dry-run et --apply sont exclusifs.")
         path = options["file"]
-        if not path.exists() or path.suffix.lower() != ".pdf":
-            raise CommandError("--file doit désigner un PDF existant.")
-        publication_date = None
-        if options["publication_date"]:
-            try:
-                publication_date = datetime.strptime(options["publication_date"], "%Y-%m-%d").date()
-            except ValueError as exc:
-                raise CommandError("--publication-date doit être au format YYYY-MM-DD.") from exc
-        service = OfficialIndexValidationService(path, source_url=options["source_url"], document_reference=options["document_reference"], source_reference=options["source_reference"], publication_date=publication_date, reprocess_existing=options["reprocess_existing"])
-        plan = service.plan()
-        if plan.duplicate:
-            self.stdout.write("DOCUMENT_DUPLICATE_DETECTED")
-            self.stdout.write("MODE=DRY_RUN" if not options["apply"] else "MODE=APPLY_NOOP")
-            return
-        self.stdout.write(f"TEST_DATABASE={'YES' if __import__('os').environ.get('DJANGO_ENV', '').lower() == 'test' else 'NO (écriture refusée hors test)'}")
-        self.stdout.write(f"PRODUCTION_DATABASE=NO")
-        self.stdout.write(f"DOCUMENT={plan.result.filename} SHA256={plan.result.sha256} METHOD={plan.result.extractor} STATUS={plan.result.extraction_status}")
-        self.stdout.write(f"NOMINAL_PERIOD={plan.nominal_year or 'UNKNOWN'}-{plan.nominal_month or 'UNKNOWN'}")
-        self.stdout.write(f"PERIODS={','.join(plan.result.periods) or 'UNKNOWN'}")
-        self.stdout.write(f"OFFICIAL_ROWS={len(plan.result.raw_rows)} NOMINAL_COMPARISONS={len(plan.comparisons)}")
-        for key, value in sorted(plan.summary.items()):
-            if value:
-                self.stdout.write(f"{key}={value}")
-        if not options["apply"]:
-            self.stdout.write("MODE=DRY_RUN")
-            return
+        if not path.exists():
+            raise CommandError("--file doit désigner un fichier existant.")
+        provenance = Provenance(source_pdf_url=options["source_url"], import_method=IndexSourceDocument.ImportMethod.MANUAL)
         try:
-            _, outcome = service.apply(allow_live=options["allow_live_database"])
-        except RuntimeError as exc:
-            raise CommandError(str(exc)) from exc
-        self.stdout.write(f"EVENT={outcome['event']}")
-        self.stdout.write("MODE=APPLY")
+            outcome = ingest_official_bareme(path, provenance)
+            self.stdout.write(f"EVENT={outcome['event']}")
+            self.stdout.write(f"DOCUMENT={outcome['preview']['filename']} SHA256={outcome['preview']['sha256']}")
+            self.stdout.write(f"NOMINAL_PERIOD={outcome['preview']['year']}-{outcome['preview']['month']}")
+            self.stdout.write(f"INDICES={outcome['preview']['count']} BLOCKING={outcome['preview']['blocking_issues']}")
+            if options["apply"] and outcome["event"] != "DOCUMENT_ALREADY_IMPORTED":
+                preview = validate_official_bareme(outcome["preview"]["document_id"], confirm_conflicts=options["confirm_conflicts"])
+                self.stdout.write(f"VALIDATION_STATUS={preview['validation_status']}")
+        except OfficialIngestionError as exc:
+            raise CommandError(f"{exc.code}: {exc}") from exc

@@ -393,3 +393,18 @@ Implémentation : `markets.calculation_engine` et
 Preuves : `markets.test_calculation_engine` (golden BAT3) et
 `markets.test_statements` (scénario SRM-SM, mois à zéro, août absent et
 statuts non définitifs).
+
+## IDX-07 — gel de l'importeur officiel v0.9.0
+
+| Exigence | Implémentation | Migration | Tests / preuve | Statut |
+|---|---|---|---|---|
+| Découverte officielle sans validation automatique | `markets.official_ingestion.check_official_publications`, commande `check_official_publications`, écran Indices | `0016_officialdiscoverycheck_and_more.py` | tests d'ingestion officielle et frontend Indices | IMPLEMENTED / TESTED |
+| Import PDF officiel, hash et provenance | `ingest_official_bareme`, `IndexSourceDocument`, `IndexPublication` | `0016`, `0017` | preview, idempotence, provenance et hash | IMPLEMENTED / TESTED |
+| Preview obligatoire avant validation | `_preview`, `validate_official_bareme`, API et `IndicesPage` | `0016` | validation bloquée sur `UNKNOWN_CODE`, `AMBIGUOUS`, `NEW_OFFICIAL_CODE` et `CONFLICT` | IMPLEMENTED / TESTED |
+| Résolution manuelle des ambiguïtés | résolution d'une ligne et création contrôlée d'un `IndexDefinition` | `0018` | tests de résolution et de création de code | IMPLEMENTED / TESTED |
+| Statistiques d'extraction traçables | `extracted_cells`, `extracted_rows` | `0019` | preview et persistance documentaire | IMPLEMENTED / TESTED |
+| Consultation/calcul database-first | `IndicesPage`, `resolve_index`, `resolve_calculation_index` ; valeurs locales `DEFINITIVE` uniquement | — | backend 196/196, frontend 73/73, build PASS | IMPLEMENTED / TESTED / FROZEN |
+
+Périmètre de gel : les références `revisiondesprix.ma` restent historiques ou
+dépréciées et ne sont pas utilisées par le runtime V1. Aucun PDF réel, OCR réel,
+migration de production ou déploiement n'est inclus dans v0.9.0.

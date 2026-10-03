@@ -228,11 +228,26 @@ class IndexRepositoryTests(TestCase):
     def test_api_filters_and_member_read_isolation(self):
         response = self.client.get("/api/indices/values/?year=2025&month=11&code=BAT3-TEST&domain=BAT&status=DEFINITIVE")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data), 1)
+        self.assertEqual(len(response.data["results"]), 1)
         member = APIClient(); member.force_authenticate(self.member)
         self.assertEqual(member.get("/api/indices/publications/").status_code, 200)
         other = APIClient(); other.force_authenticate(self.other)
         self.assertEqual(other.get("/api/indices/values/").status_code, 403)
+
+    def test_api_database_filters_are_combined_and_paginated(self):
+        second_definition = IndexDefinition.objects.create(code="BAT6-TEST", designation="Main-d'œuvre", domain="BAT")
+        publication = IndexPublication.objects.create(year=2026, month=1, source_type=IndexPublication.SourceType.OFFICIAL, document_reference="Barème janvier 2026", status=IndexPublication.Status.VALIDATED)
+        MonthlyIndexValue.objects.create(index_definition=self.definition, publication=publication, year=2026, month=1, value=Decimal("340.0"), status=MonthlyIndexValue.Status.DEFINITIVE)
+        MonthlyIndexValue.objects.create(index_definition=second_definition, publication=publication, year=2026, month=1, value=Decimal("210.0"), status=MonthlyIndexValue.Status.DEFINITIVE)
+        response = self.client.get("/api/indices/values/?code=BAT&year=2026&month=1&page=1&page_size=1")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 2)
+        self.assertTrue(response.data["has_next"])
+        self.assertEqual(len(response.data["results"]), 1)
+        second_page = self.client.get("/api/indices/values/?code=BAT&year=2026&month=1&page=2&page_size=1")
+        self.assertEqual(second_page.data["results"][0]["year"], 2026)
+        designation_search = self.client.get("/api/indices/values/?code=Main-d")
+        self.assertEqual(designation_search.data["results"][0]["index_definition_detail"]["code"], "BAT6-TEST")
 
     def test_base_resolution_uses_exact_market_month_and_formula_code(self):
         market = Market.objects.create(company=self.company, market_number="INDEX-001", contracting_authority="Commune", subject="Travaux", date_limite_remise_offres=date(2025, 11, 19), formula_structure=Market.FormulaStructure.SINGLE)

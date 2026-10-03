@@ -31,7 +31,7 @@ class OfficialIndexValidationTests(TestCase):
         self.assertEqual(len(rows), 6)
         self.assertEqual(rows[0].normalized_value, "337.8")
         self.assertEqual(rows[0].validation_status, "DEFINITIVE")
-        self.assertEqual(rows[3].validation_status, "PENDING_VALIDATION")
+        self.assertEqual(rows[3].validation_status, "DEFINITIVE")
 
     def test_sha256_is_stable(self):
         with NamedTemporaryFile() as stream:

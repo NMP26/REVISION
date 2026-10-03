@@ -130,8 +130,9 @@ export type RevisionApplication = {
   base_index_source?: string | null
 }
 export type IndexDefinition = { id: string; code: string; designation: string; domain: string; active: boolean }
-export type IndexPublication = { id: string; year: number; month: number; publication_date: string | null; source_url: string; document_reference: string; document_hash: string; source_type: 'OFFICIAL' | 'EXTERNAL_SECONDARY' | 'MANUAL_VALIDATED'; status: string; imported_at: string; validated_at: string | null }
+export type IndexPublication = { id: string; year: number; month: number; publication_date: string | null; source_url: string; source_page_url: string; source_pdf_url: string; document_reference: string; document_hash: string; source_type: 'OFFICIAL' | 'EXTERNAL_SECONDARY' | 'MANUAL_VALIDATED'; import_method: 'MANUAL' | 'OFFICIAL_AUTO'; status: string; imported_at: string; validated_at: string | null; validated_by: string | null; indices_count: number }
 export type MonthlyIndexValue = { id: string; index_definition: string; index_definition_detail: IndexDefinition; publication: string; publication_detail: IndexPublication; year: number; month: number; value: string; status: 'DEFINITIVE' | 'PROVISIONAL' | 'PENDING_VALIDATION'; source_url: string; source_document: string; source_reference: string; validated_at: string | null; created_at: string; updated_at: string }
+export type MonthlyIndexValuePage = { results: MonthlyIndexValue[]; count: number; page: number; page_size: number; has_next: boolean; has_previous: boolean }
 export type ExternalIndexStaging = { id: string; source_provider: string; source_endpoint: string; retrieved_at: string; external_code: string; external_designation: string | null; year: number | null; month: number | null; raw_value: string; normalized_value: string | null; raw_payload_hash: string; previous_raw_value: string; previous_normalized_value: string | null; previous_raw_payload_hash: string; source_changed: boolean; comparison_status: string; validation_status: string; matched_index_definition: string | null; matched_index_definition_detail?: IndexDefinition | null; local_value: string | null; pdf_value: string | null; pdf_comparison_status: string; created_at: string; updated_at: string }
 export type ExternalIndexStagingPage = { results: ExternalIndexStaging[]; count: number; page: number; page_size: number; has_next: boolean }
 export type PriceSchedule = {
@@ -188,9 +189,19 @@ export function saveMarketLot(data: Record<string, unknown>, marketId: string, l
   return api<MarketLot>(lotId ? `/markets/${marketId}/lots/${lotId}/` : `/markets/${marketId}/lots/`, { method: lotId ? 'PATCH' : 'POST', body: JSON.stringify(payload) })
 }
 export function listRevisionGroups(marketId: string) { return api<RevisionGroup[]>(`/markets/${marketId}/revision-groups/`) }
-export function listIndexValues(query = '') { return api<MonthlyIndexValue[]>(`/indices/values/${query ? `?${query}` : ''}`) }
+export function listIndexDefinitions(query = '') { return api<IndexDefinition[]>(`/indices/definitions/${query ? `?${query}` : ''}`) }
+export function listIndexValues(query = '') { return api<MonthlyIndexValuePage>(`/indices/values/${query ? `?${query}` : ''}`) }
 export function listIndexPublications() { return api<IndexPublication[]>('/indices/publications/') }
 export function listExternalIndexStaging(query = '') { return api<ExternalIndexStagingPage>(`/indices/staging/${query ? `?${query}` : ''}`) }
+export type OfficialImportRow = { id: string; code: string; raw_extracted_code: string; designation: string; value: string | null; local_value: string | null; status: string; resolution_method: string | null; resolution_candidates: string[]; resolved_by: string | null; resolved_at: string | null; year: number; month: number }
+export type OfficialImportPreview = { document_id: string; publication_id: string | null; filename: string; sha256: string; source: string; source_page_url: string; source_pdf_url: string; year: number | null; month: number | null; validation_status: string; rows: OfficialImportRow[]; count: number; blocking_issues: number }
+export type OfficialDiscoveryStatus = { status: string; checked_at: string | null; new_documents: number; latest_new_document: string | null; error?: string }
+export function importOfficialBareme(file: File) { const body = new FormData(); body.append('file', file); return api<{ event: string; preview: OfficialImportPreview }>('/indices/official-imports/', { method: 'POST', body }) }
+export function validateOfficialBareme(documentId: string, confirm_conflicts = false) { return api<OfficialImportPreview>(`/indices/official-imports/${documentId}/validate/`, { method: 'POST', body: JSON.stringify({ confirm_conflicts }) }) }
+export function resolveOfficialImportRow(documentId: string, rowId: string, indexDefinition: string) { return api<OfficialImportPreview>(`/indices/official-imports/${documentId}/rows/${rowId}/resolve/`, { method: 'POST', body: JSON.stringify({ index_definition: indexDefinition }) }) }
+export function createOfficialIndexDefinition(documentId: string, rowId: string, designation: string, code = '') { return api<OfficialImportPreview>(`/indices/official-imports/${documentId}/rows/${rowId}/create-definition/`, { method: 'POST', body: JSON.stringify({ designation, code }) }) }
+export function checkOfficialPublications() { return api<OfficialDiscoveryStatus>('/indices/official-discovery/', { method: 'POST', body: JSON.stringify({}) }) }
+export function getOfficialDiscoveryStatus() { return api<OfficialDiscoveryStatus>('/indices/official-discovery/') }
 export function getMarketBaseIndex(marketId: string) { return api<Record<string, unknown>>(`/markets/${marketId}/base-index/`) }
 export function listStatements(marketId: string) { return api<Statement[]>(`/markets/${marketId}/statements/`) }
 export function saveStatement(marketId: string, data: Record<string, unknown>, statementId?: string) { return api<Statement>(statementId ? `/markets/${marketId}/statements/${statementId}/` : `/markets/${marketId}/statements/`, { method: statementId ? 'PATCH' : 'POST', body: JSON.stringify(data) }) }

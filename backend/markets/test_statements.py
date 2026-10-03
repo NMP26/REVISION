@@ -291,7 +291,7 @@ class DefinitiveOnlyCalculationTests(TestCase):
         MonthlyIndexValue.objects.create(index_definition=self.definition, publication=publication, year=2025, month=11, value=Decimal("100"), status=MonthlyIndexValue.Status.DEFINITIVE)
 
     def add_index(self, year, month, value, status):
-        publication = IndexPublication.objects.create(year=year, month=month, source_type=IndexPublication.SourceType.EXTERNAL_SECONDARY, document_reference=f"Test {year}-{month}", status=IndexPublication.Status.PENDING_VALIDATION)
+        publication = IndexPublication.objects.create(year=year, month=month, source_type=IndexPublication.SourceType.OFFICIAL, document_reference=f"Test {year}-{month}", status=IndexPublication.Status.PENDING_VALIDATION)
         return MonthlyIndexValue.objects.create(index_definition=self.definition, publication=publication, year=year, month=month, value=Decimal(value), status=status)
 
     def make_statement(self, months):

@@ -70,6 +70,10 @@ AXES_RESET_ON_SUCCESS = True
 AXES_ENABLED = os.environ.get("AXES_ENABLED", "True").lower() in {"1", "true", "yes"}
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
+OFFICIAL_INDEX_PUBLICATION_URL = os.environ.get(
+    "OFFICIAL_INDEX_PUBLICATION_URL",
+    "https://www.equipement.gov.ma/Ingenierie/pages/revision-des-prix-baremes-indexation.aspx",
+).strip()
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["core.authentication.ApiSessionAuthentication"],
     "EXCEPTION_HANDLER": "core.exceptions.api_exception_handler",
